@@ -2,10 +2,14 @@ import http from 'node:http';
 import { gunzipSync } from 'node:zlib';
 import { URL } from 'node:url';
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { loadData, saveData, ingestBuckets, getDataPath, hash } from './store.js';
 import { estimateCost } from './prices.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const DASHBOARD_PATH = join(__dirname, 'ui', 'dashboard.html');
 
 const PORT = Number(process.env.PORT || process.env.VIBE_USAGE_PORT || 3456);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -69,6 +73,27 @@ function sendJson(res, status, body) {
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   });
   res.end(payload);
+}
+
+// Serve the single-file local dashboard, injecting the server's expected API
+// key so the browser can authenticate against /api/usage. Only reachable on
+// localhost (HOST=127.0.0.1 by default), so embedding the key here is no less
+// exposed than the CLI/app reading ~/.vibe-usage/config.json.
+function serveDashboard(req, res) {
+  let html;
+  try {
+    html = readFileSync(DASHBOARD_PATH, 'utf-8');
+  } catch {
+    return sendJson(res, 500, { error: 'dashboard_missing', message: DASHBOARD_PATH });
+  }
+  html = html.replace('__VIBE_API_KEY__', JSON.stringify(EXPECTED_KEY || ''));
+  const buf = Buffer.from(html);
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Content-Length': buf.length,
+    'Cache-Control': 'no-store',
+  });
+  res.end(buf);
 }
 
 // Parse bucketStart into a Date. Accepts full ISO (with/without fractional
@@ -218,6 +243,10 @@ const server = http.createServer((req, res) => {
   }
   const handler = router[routeKey];
   if (!handler) {
+    // Local dashboard at / and /usage (GET only). No auth — localhost-only.
+    if (req.method === 'GET' && (path === '' || path === '/' || path === '/usage' || path === '/index.html')) {
+      return serveDashboard(req, res);
+    }
     sendJson(res, 404, { error: 'not_found' });
     return;
   }

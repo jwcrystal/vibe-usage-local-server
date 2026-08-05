@@ -87,6 +87,26 @@ GET /api/usage?days=1&tz=Asia/Taipei -> 200  [ua=VibeUsage CFNetwork/...]
 POST /api/usage/ingest -> 200                (app-driven CLI sync)
 ```
 
+### Web dashboard (cross-platform UI)
+
+A zero-dependency, single-file web dashboard is served by the server at
+**`http://127.0.0.1:3456/`** (also `/usage`). Mirrors the Mac app's dashboard
+style — dark cards for 總成本 / 總 Token / 快取 Token / Active / 總時長 / 消息, a
+daily cost bar chart, and per-model / per-tool tables with cost share. Time ranges
+(7D / 30D / 90D) re-query `GET /api/usage`.
+
+The server injects its expected API key into the page so the browser can
+authenticate against `/api/usage` — safe because the server only binds to
+`127.0.0.1` by default. Runs in any browser, so it works on machines without the
+Mac app (Windows/Linux).
+
+```bash
+open http://127.0.0.1:3456/        # after the server is up
+```
+
+> Note: `sessions` are not day-filtered server-side (matching upstream); the
+> Active/總時長 cards aggregate all sessions regardless of the selected range.
+
 ---
 
 ## Launchd (auto-start on login)
