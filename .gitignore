@@ -31,3 +31,6 @@ Thumbs.db
 dist/
 build/
 *.tgz
+
+# --- OpenCode session state ---
+.opencode/

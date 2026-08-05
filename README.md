@@ -90,10 +90,25 @@ POST /api/usage/ingest -> 200                (app-driven CLI sync)
 ### Web dashboard (cross-platform UI)
 
 A zero-dependency, single-file web dashboard is served by the server at
-**`http://127.0.0.1:3456/`** (also `/usage`). Mirrors the Mac app's dashboard
-style — dark cards for 總成本 / 總 Token / 快取 Token / Active / 總時長 / 消息, a
-daily cost bar chart, and per-model / per-tool tables with cost share. Time ranges
-(7D / 30D / 90D) re-query `GET /api/usage`.
+**`http://127.0.0.1:3456/`** (also `/usage`). Dark, Mac-app-inspired dashboard:
+**10 KPI cards** (cost / input / output / cache tokens, active & total duration,
+sessions, total & user messages) each with a **% delta vs the previous equal
+window**, an automatically hourly/daily/weekly stacked-token trend (輸出 / 輸入 /
+緩存) based on the selected time range, shown
+beside a 7×24 time-of-day heatmap, **donut distributions** for model / tool / project / terminal (Token/費用
+toggle), and a sortable **詳細記錄 table** (日期 / 終端 / 工具 / 項目 /
+模型 / 輸入·輸出·緩存 token / 費用). Time ranges (今天 / 24H / 7D / 30D /
+90D / 自定義) re-query `GET /api/usage`.
+
+Light **interaction effects** aid legibility: staggered rise-in on load, card /
+donut lift on hover, bar and heatmap-cell hover highlights, row highlights in the
+records table, and styled hover popups on metrics/charts/distributions. Trend-bar
+popups include total Token, output/input/cache breakdown, and cost. All chart bars use pixel heights (never CSS `%`), so they can
+never render as a full-width overflow slab regardless of browser/flex quirks.
+
+All day/hour bucketing and session-range filtering use the **browser's local
+timezone**, so cross-day boundaries (e.g. Asia/Taipei morning) group correctly
+instead of the raw UTC prefix.
 
 The server injects its expected API key into the page so the browser can
 authenticate against `/api/usage` — safe because the server only binds to
@@ -104,8 +119,9 @@ Mac app (Windows/Linux).
 open http://127.0.0.1:3456/        # after the server is up
 ```
 
-> Note: `sessions` are not day-filtered server-side (matching upstream); the
-> Active/總時長 cards aggregate all sessions regardless of the selected range.
+> Note: the server returns all sessions unfiltered (matching upstream); the
+> dashboard filters them by the selected range so Active / 總時長 / 消息 cards
+> only count sessions in that range.
 
 ---
 
