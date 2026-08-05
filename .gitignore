@@ -1,0 +1,33 @@
+# --- Node ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Local runtime data (safety: never commit user usage data or pricing secrets) ---
+.vibe-usage/
+vibe-usage-server/
+*.data.json
+data.json
+server.log
+server.err
+
+# --- Editor / OS ---
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.code-workspace
+
+# --- Env ---
+.env
+.env.*
+!.env.example
+
+# --- Build artifacts ---
+dist/
+build/
+*.tgz
