@@ -98,6 +98,42 @@ VIBE_USAGE_API_URL=http://127.0.0.1:3456 npx @vibe-cafe/vibe-usage sync
 > wrapper `bin/vibe-usage-server.js` 會依目前 platform/arch 挑選對應 binary 執行；
 > 若 binary 不存在則退回 Node source。`npm pack` 會把兩個 binary 一起包進 tgz。
 
+### 正式安裝（npm 全域）＋自訂資料目錄
+
+若不想從 repo 手動啟動，可用 npm 全域安裝，之後直接 `vibe-usage-server`。資料與
+價格預設都在 `~/.vibe-usage-server/`；可用 `VIBE_USAGE_SERVER_DIR` 指到自訂目錄——
+
+把 server 跑在自訂目錄，資料 / 價格 / 日誌都收在一起：
+
+```bash
+# 1. 安裝
+npm install -g vibe-usage-local-server   # 或從本地 tgz：npm install -g ./vibe-usage-local-server-0.1.0.tgz
+
+# 2. 建立自訂資料目錄（可選；不設就預設 ~/.vibe-usage-server/）
+mkdir -p /Volumes/Data/vibe-usage
+
+# 3. 啟動（用 VIBE_USAGE_SERVER_DIR 指定資料目錄；此 env 同時決定 data.json 與 prices.json 位置）
+VIBE_USAGE_SERVER_DIR=/Volumes/Data/vibe-usage vibe-usage-server
+#   Vibe Usage local server listening on http://127.0.0.1:3456
+#   Data: /Volumes/Data/vibe-usage/data.json
+
+# 4. 把 CLI 指到伺服器
+npx @vibe-cafe/vibe-usage init --manual-key vbu_xxx
+#    確認 ~/.vibe-usage/config.json 為：
+#    { "apiKey": "vbu_xxx", "apiUrl": "http://127.0.0.1:3456" }
+
+# 5. 同步（在第 3 步同樣的 VIBE_USAGE_SERVER_DIR 環境下，讓 CLI 也寫進同一目錄）
+VIBE_USAGE_SERVER_DIR=/Volumes/Data/vibe-usage \
+VIBE_USAGE_API_URL=http://127.0.0.1:3456 \
+npx @vibe-cafe/vibe-usage sync
+```
+
+> **`VIBE_USAGE_SERVER_DIR` 同時決定 `data.json` 與 `prices.json` 的位置**——把一個
+> `prices.json` 放進該目錄即覆蓋內建價格表（見下方 [本地計價](#本地計價)）。
+> 與 repo 內 `node index.js` 的差別：全域安裝走編譯好的 `dist/` binary（零依賴）；
+> 唯一要注意的是 server 與 CLI 若都要用同一資料目錄，就讓兩者都設同一個
+> `VIBE_USAGE_SERVER_DIR`。
+
 ---
 
 ## Web dashboard
@@ -147,9 +183,25 @@ POST /api/usage/ingest -> 200                (app-driven CLI sync)
 
 ## 本地計價
 
-`estimatedCost` 在**讀取時**依 `src/prices.json` 計算，以 CLI 輸出的**確切 `model` 字串**為鍵（該字串已含 provider，
-如 `accounts/fireworks/models/glm-5p2`、`zai-org/GLM-5.2`）。**編輯 `src/prices.json`，所有既有資料的費用立刻更新。**
+`estimatedCost` 在**讀取時**依價格表即時計算，以 CLI 輸出的**確切 `model` 字串**為鍵（該字串已含 provider，
+如 `accounts/fireworks/models/glm-5p2`、`zai-org/GLM-5.2`）。**改價格表，所有既有資料的費用立刻更新。**
 內建價格表目前涵蓋 **91 個 model**。
+
+### prices.json 要放在哪？
+
+override 價格表依**優先序**找，第一個命中的生效：
+
+| 順位 | 路徑 | 適用情境 |
+|------|------|----------|
+| 1 | `~/.vibe-usage-server/prices.json`（資料目錄，可用 `VIBE_USAGE_SERVER_DIR` 搬移） | **建議**——npm 全域安裝 / binary 都一致，跟使用者資料放一起，重裝套件不會被清掉 |
+| 2 | `prices.json` 放在 binary **同一個資料夾**（如 `dist/` 旁） | 只想對單一 standalone binary 調價、不想動資料目錄 |
+
+啟動時依序檢查上面兩個位置；都沒有、或檔案不合法（不含 `models` 物件）就退回**內嵌預設表**。
+
+> Node source（`node index.js`）：階層 2 會解析到 Node binary 的目錄，因此**不會**遮蔽 `src/prices.json`。若用 source 開發要改價，
+> 直接編輯 `src/prices.json` 即可。
+
+### 完整自訂範例
 
 ```jsonc
 {
@@ -166,8 +218,11 @@ POST /api/usage/ingest -> 200                (app-driven CLI sync)
 }
 ```
 
-- `input` / `output` / `cacheReadMtok` = 每 **100 萬** token 的美元計價。
-- `vendor` / `source` 僅供文件說明，不參與計費計算。
+### 欄位說明
+
+- `input` / `output` / `cacheReadMtok` = 每 **100 萬** token 的**美元**計價，皆可省略（省略視為 0）。
+- 成本公式（`prices.js`）：`input×inRate + (output + reasoningOutput)×outRate + cachedInput×cacheReadRate`。
+- `vendor` / `source` 僅供文件說明，**不參與計費計算**。
 - 價格表中**不存在**的 model → `estimatedCost` 為 `null`（與上游「未匹配 model 得出 nil」一致）。
 - 計價來源：`official` = 已對照 provider 公布價格驗證（Anthropic、OpenAI、Google Gemini、
   Fireworks、DeepInfra、DeepSeek、Kimi、MiniMax）；`openrouter` = 取自 OpenRouter `/api/v1/models`，尚未經 vendor 驗證。
@@ -178,7 +233,8 @@ POST /api/usage/ingest -> 200                (app-driven CLI sync)
 
 ## 儲存
 
-- **路徑**：`~/.vibe-usage-server/data.json`（可用 `VIBE_USAGE_SERVER_DIR` 覆寫目錄）。
+- **路徑**：`~/.vibe-usage-server/data.json`，可用 `VIBE_USAGE_SERVER_DIR` 環境變數覆寫整個資料目錄
+  （eg. `VIBE_USAGE_SERVER_DIR=/Volumes/Data/vibe-usage` → `data.json` 與 `prices.json` 都在該目錄）。
 - **Buckets**：以 `source|model|project|hostname|bucketStart` 去重；較大的既有快照勝出（「保護」，與上游一致）。
 - **Sessions**：以 `source|sessionHash` 去重。
 - 寫入採原子寫入（寫臨時檔再 rename）。
@@ -217,6 +273,10 @@ launchctl enable gui/$(id -u)/com.vibe-usage.server   # 重新啟用
 Plist：`~/Library/LaunchAgents/com.vibe-usage.server.plist`
 Logs：`~/.vibe-usage/logs/` (`vibe-usage-server.log` / `server.err`)
 State：`launchctl print gui/$(id -u)/com.vibe-usage.server`
+
+> 若 launchd 想搭配自訂資料目錄，在 plist 的 `EnvironmentVariables` 加入
+> `<key>VIBE_USAGE_SERVER_DIR</key><string>/Volumes/Data/vibe-usage</string>` 再
+> `launchctl bootstrap gui/$(id -u) <plist>` 重新載入。
 
 ### 請求日誌（除錯）
 
