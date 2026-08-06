@@ -53,7 +53,10 @@ CLI 與 Mac App 都會從 `~/.vibe-usage/config.json`（DEBUG 版另讀 `config.
 
 ```
 vibe-usage-local-server/
-├── index.js              # 進入點 (node index.js)
+├── index.js               # 進入點 (node index.js)
+├── bin/
+│   └── vibe-usage-server.js # npm bin wrapper（依 platform/arch 選 dist binary，退回 Node source）
+├── dist/                  # Bun --compile 平台專屬 binary（darwin-arm64 / linux-x64）
 ├── src/
 │   ├── server.js         # HTTP server、路由、認證、gzip、過濾
 │   ├── store.js          # JSON 持久化、bucket/session 去重
@@ -61,6 +64,10 @@ vibe-usage-local-server/
 │   ├── prices.json       # ★ 你的本地價格表（可自由編輯）
 │   └── ui/
 │       └── dashboard.html # 單檔 Web dashboard（零依賴）
+├── scripts/
+│   ├── com.vibe-usage.server.plist # launchd LaunchAgent 範本
+│   ├── install-launchd.sh           # 安裝 + 啟動（登入自啟、當機重啟）
+│   └── uninstall-launchd.sh         # 移除
 └── test/
     └── server.test.js    # node:test 測試 (8 項)
 ```
@@ -70,8 +77,11 @@ vibe-usage-local-server/
 ## 快速開始
 
 ```bash
+# 0. （可選）以 npm 全域安裝 — 之後直接 `vibe-usage-server` 即可
+npm pack && npm install -g ./vibe-usage-local-server-0.1.0.tgz
+
 # 1. 啟動伺服器（手動，或改用 launchd，見下方）
-node index.js
+node index.js          # 或已全域安裝：vibe-usage-server
 #   Vibe Usage local server listening on http://127.0.0.1:3456
 
 # 2. 將 CLI 指到伺服器
@@ -82,6 +92,11 @@ npx @vibe-cafe/vibe-usage init --manual-key vbu_xxx
 # 3. 同步（寫入本地伺服器）
 VIBE_USAGE_API_URL=http://127.0.0.1:3456 npx @vibe-cafe/vibe-usage sync
 ```
+
+> 打包：`npm run build`（若存在）會以 Bun `--compile` 產出平台專屬
+> `dist/vibe-usage-server-<platform>-<arch>` 單一二進位（零依賴、已內含 runtime）。
+> wrapper `bin/vibe-usage-server.js` 會依目前 platform/arch 挑選對應 binary 執行；
+> 若 binary 不存在則退回 Node source。`npm pack` 會把兩個 binary 一起包進 tgz。
 
 ---
 
@@ -180,32 +195,28 @@ node --test "test/*.test.js"     # 8 項測試：計價、去重、認證、過�
 
 ## 自動啟動（launchd）
 
-伺服器以使用者 **LaunchAgent** 管理，登入即啟動、當機自動重啟。
+伺服器以使用者 **LaunchAgent** 管理，**登入即啟動**（`RunAtLoad`）、**當機自動重啟**（`KeepAlive`）。
 
-Plist：`~/Library/LaunchAgents/com.vibe-usage.local-server.plist`
-Logs：`~/.vibe-usage-server/server.log` / `server.err`
+用內建腳本安裝（會自動解析 `vibe-usage-server` binary 位置、寫入 plist 並啟動）：
 
 ```bash
-# 載入 / 啟動
-launchctl load ~/Library/LaunchAgents/com.vibe-usage.local-server.plist
+./scripts/install-launchd.sh
+# 若 binary 不在 PATH：./scripts/install-launchd.sh --bin /path/to/vibe-usage-server
 
-# 停止（job 保留，除非 KeepAlive 否則不會重啟）
-launchctl kickstart -k gui/$(id -u)/com.vibe-usage.local-server
+# 停止（job 保留）
+launchctl bootout gui/$(id -u)/com.vibe-usage.server
 
 # 完全停用（未來登入不啟動）
-launchctl disable gui/$(id -u)/com.vibe-usage.local-server
+launchctl disable gui/$(id -u)/com.vibe-usage.server
+launchctl enable gui/$(id -u)/com.vibe-usage.server   # 重新啟用
 
-# 重新啟用
-launchctl enable gui/$(id -u)/com.vibe-usage.local-server
-launchctl load ~/Library/LaunchAgents/com.vibe-usage.local-server.plist
-
-# 編輯 plist 後（如改 PORT）重新載入：
-launchctl unload ~/Library/LaunchAgents/com.vibe-usage.local-server.plist
-launchctl load   ~/Library/LaunchAgents/com.vibe-usage.local-server.plist
-
-# 編輯 server.js 後重啟：
-launchctl kickstart -k gui/$(id -u)/com.vibe-usage.local-server
+# 移除 LaunchAgent
+./scripts/uninstall-launchd.sh
 ```
+
+Plist：`~/Library/LaunchAgents/com.vibe-usage.server.plist`
+Logs：`~/.vibe-usage/logs/` (`vibe-usage-server.log` / `server.err`)
+State：`launchctl print gui/$(id -u)/com.vibe-usage.server`
 
 ### 請求日誌（除錯）
 
