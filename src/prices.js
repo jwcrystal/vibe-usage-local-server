@@ -1,25 +1,30 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const PRICES_PATH = join(__dirname, 'prices.json');
+// Embedded default price table, bundled into the standalone binary at build
+// time via the JSON import below (works under plain Node >= 20.10 too).
+import defaultPrices from './prices.json' with { type: 'json' };
 
-// Load the local price table once. Users edit prices.json to tune pricing.
-// Format: { models: { "<model>": { input, output, cacheReadMtok } } } where
-// the *_Mtok values are USD per million tokens. A model absent from the table
-// yields no price -> estimatedCost is nil (matches the upsteam contract where
-// an unmatched model returns nil).
+// A user-editable override: if a `prices.json` file sits next to the running
+// executable, it wins over the embedded default. This keeps the '本地調價'
+// core feature for the binary build — drop a prices.json beside the exe to
+// tune pricing without rebuilding. Under plain `node` dev the override path
+// resolves to the Node binary's directory, so it never shadows ./src/prices.json.
+function externalPricesPath() {
+  return join(dirname(process.execPath), 'prices.json');
+}
+
 export function loadPrices() {
-  let raw;
+  const ext = externalPricesPath();
   try {
-    raw = JSON.parse(readFileSync(PRICES_PATH, 'utf-8'));
+    if (existsSync(ext)) {
+      const parsed = JSON.parse(readFileSync(ext, 'utf-8'));
+      if (parsed.models && typeof parsed.models === 'object') return parsed;
+    }
   } catch {
-    // Never crash the server on a malformed price file — degrade to empty table.
-    return { models: {} };
+    // Malformed or unreadable override — fall through to the embedded default.
   }
-  const models = raw.models && typeof raw.models === 'object' ? raw.models : {};
-  return { models };
+  return defaultPrices;
 }
 
 // Compute estimated cost for one bucket. Returns a number, or null if the

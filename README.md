@@ -134,6 +134,7 @@ POST /api/usage/ingest -> 200                (app-driven CLI sync)
 
 `estimatedCost` 在**讀取時**依 `src/prices.json` 計算，以 CLI 輸出的**確切 `model` 字串**為鍵（該字串已含 provider，
 如 `accounts/fireworks/models/glm-5p2`、`zai-org/GLM-5.2`）。**編輯 `src/prices.json`，所有既有資料的費用立刻更新。**
+內建價格表目前涵蓋 **91 個 model**。
 
 ```jsonc
 {
@@ -153,8 +154,8 @@ POST /api/usage/ingest -> 200                (app-driven CLI sync)
 - `input` / `output` / `cacheReadMtok` = 每 **100 萬** token 的美元計價。
 - `vendor` / `source` 僅供文件說明，不參與計費計算。
 - 價格表中**不存在**的 model → `estimatedCost` 為 `null`（與上游「未匹配 model 得出 nil」一致）。
-- 計價來源：`official` = 已對照 provider 公布價格驗證（Fireworks、DeepInfra、OpenAI、
-  DeepSeek、Kimi、MiniMax）；`openrouter` = 取自 OpenRouter `/api/v1/models`，尚未經 vendor 驗證。
+- 計價來源：`official` = 已對照 provider 公布價格驗證（Anthropic、OpenAI、Google Gemini、
+  Fireworks、DeepInfra、DeepSeek、Kimi、MiniMax）；`openrouter` = 取自 OpenRouter `/api/v1/models`，尚未經 vendor 驗證。
 - OpenCode Go 為**訂閱制**（首月 $5 / 之後每月 $10）；其 model 刻意以 vendor 每 token *估計*
   計價，讓費用欄位反映**實際用量價值**而非真實訂閱帳單。
 
