@@ -54,10 +54,7 @@ CLI 與 Mac App 都會從 `~/.vibe-usage/config.json`（DEBUG 版另讀 `config.
 
 ```
 vibe-usage-local-server/
-├── index.js               # 進入點 (node index.js)
-├── bin/
-│   └── vibe-usage-server.js # npm bin wrapper（依 platform/arch 選 dist binary，退回 Node source）
-├── dist/                  # Bun --compile 平台專屬 binary（darwin-arm64 / linux-x64）
+├── index.js               # 進入點 + npm bin（node index.js / vibe-usage-server）
 ├── src/
 │   ├── server.js         # HTTP server、路由、認證、gzip、過濾
 │   ├── store.js          # JSON 持久化、bucket/session 去重
@@ -94,10 +91,8 @@ npx @vibe-cafe/vibe-usage init --manual-key vbu_xxx
 VIBE_USAGE_API_URL=http://127.0.0.1:3456 npx @vibe-cafe/vibe-usage sync
 ```
 
-> 打包：`npm run build`（若存在）會以 Bun `--compile` 產出平台專屬
-> `dist/vibe-usage-server-<platform>-<arch>` 單一二進位（零依賴、已內含 runtime）。
-> wrapper `bin/vibe-usage-server.js` 會依目前 platform/arch 挑選對應 binary 執行；
-> 若 binary 不存在則退回 Node source。`npm pack` 會把兩個 binary 一起包進 tgz。
+> 打包：`npm pack` 產出 `vibe-usage-local-server-<version>.tgz`，內容為純 Node source
+> （`src/`、`ui/`、`index.js`），零依賴、任一平台 npm install 皆可直接執行（需 Node ≥ 20）。
 
 ### 正式安裝（npm 全域）＋自訂資料目錄
 
@@ -131,9 +126,7 @@ npx @vibe-cafe/vibe-usage sync
 
 > **`VIBE_USAGE_SERVER_DIR` 同時決定 `data.json` 與 `prices.json` 的位置**——把一個
 > `prices.json` 放進該目錄即覆蓋內建價格表（見下方 [本地計價](#本地計價)）。
-> 與 repo 內 `node index.js` 的差別：全域安裝走編譯好的 `dist/` binary（零依賴）；
-> 唯一要注意的是 server 與 CLI 若都要用同一資料目錄，就讓兩者都設同一個
-> `VIBE_USAGE_SERVER_DIR`。
+> 注意：server 與 CLI 若都要用同一資料目錄，就讓兩者都設同一個 `VIBE_USAGE_SERVER_DIR`。
 
 ---
 
@@ -195,13 +188,13 @@ override 價格表依**優先序**找，第一個命中的生效：
 
 | 順位 | 路徑 | 適用情境 |
 |------|------|----------|
-| 1 | `~/.vibe-usage-server/prices.json`（資料目錄，可用 `VIBE_USAGE_SERVER_DIR` 搬移） | **建議**——npm 全域安裝 / binary 都一致，跟使用者資料放一起，重裝套件不會被清掉 |
-| 2 | `prices.json` 放在 binary **同一個資料夾**（如 `dist/` 旁） | 只想對單一 standalone binary 調價、不想動資料目錄 |
+| 1 | `~/.vibe-usage-server/prices.json`（資料目錄，可用 `VIBE_USAGE_SERVER_DIR` 搬移） | **建議**——與使用者資料放一起，重裝套件不會被清掉 |
+| 2 | `src/prices.json` | 純 Node source 開發時，直接編輯內建預設表 |
 
-啟動時依序檢查上面兩個位置；都沒有、或檔案不合法（不含 `models` 物件）就退回**內嵌預設表**。
+啟動時依序檢查（資料目錄優先）；兩者都沒有、或檔案不合法（不含 `models` 物件）就退回**內嵌預設表**
+（`src/prices.json`）。
 
-> Node source（`node index.js`）：階層 2 會解析到 Node binary 的目錄，因此**不會**遮蔽 `src/prices.json`。若用 source 開發要改價，
-> 直接編輯 `src/prices.json` 即可。
+> Node source（`node index.js`）：除了資料目錄的 override，內建表就是 `src/prices.json`，開發時直接改它即可。
 
 ### 完整自訂範例
 
@@ -255,11 +248,11 @@ node --test "test/*.test.js"     # 8 項測試：計價、去重、認證、過�
 
 伺服器以使用者 **LaunchAgent** 管理，**登入即啟動**（`RunAtLoad`）、**當機自動重啟**（`KeepAlive`）。
 
-用內建腳本安裝（會自動解析 `vibe-usage-server` binary 位置、寫入 plist 並啟動）：
+用內建腳本安裝（會自動解析 `vibe-usage-server` 命令位置、寫入 plist 並啟動）：
 
 ```bash
 ./scripts/install-launchd.sh
-# 若 binary 不在 PATH：./scripts/install-launchd.sh --bin /path/to/vibe-usage-server
+# 若 command 不在 PATH：./scripts/install-launchd.sh --bin /path/to/vibe-usage-server
 
 # 停止（job 保留）
 launchctl bootout gui/$(id -u)/com.vibe-usage.server
