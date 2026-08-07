@@ -1,11 +1,11 @@
 # vibe-usage-local-server
 
-在本地重現 vibe-usage 的資料接收與 dashboard API 的替代伺服器，讓整套 vibe-usage
-（CLI + macOS App）**完全不依賴雲端運作**——不上傳至 vibecafe.ai，並可本地自行調整模型計價。
+在本地重現 vibe-usage 的資料接收與 dashboard API，讓整套 vibe-usage（CLI + macOS App）
+**完全不依賴雲端運作**——不上傳 vibecafe.ai，並可自行調整模型計價。
 
 - **Node.js ≥ 20，零運行時依賴**
 - 接收 `@vibe-cafe/vibe-usage` CLI 的 token 用量，再回傳給 Mac App dashboard
-- 費用（`estimatedCost`）在**讀取時**依本地可編輯的價格表即時計算，改價格立即套用至既有資料，無需重新同步
+- 費用（`estimatedCost`）在**讀取時**依本地可編輯的價格表即時計算，改價格立即套用至既有資料，無需重同步
 - 資料以 JSON 存放於 `~/.vibe-usage-server/data.json`，**絕不離開本機**
 
 ---
@@ -21,6 +21,7 @@
 - [測試](#測試)
 - [自動啟動（launchd）](#自動啟動launchd)
 - [除錯與回滾](#除錯與回滾)
+- [未來優化路徑（storage + 查詢）](#未來優化路徑storage--查詢)
 
 ---
 
@@ -148,7 +149,8 @@ npx @vibe-cafe/vibe-usage sync
 - **時間範圍**：今天 / 24H / 7D / 30D / 90D / 自定義，皆重新查詢 `GET /api/usage`
 - **維度篩選**：工具 / 模型 / 項目 / 終端
 
-互動效果：載入時錯落淡入、卡片 / 圓環 hover 浮起、長條與熱力格 hover 強調、表格列強調，外加指標 / 圖表 / 分布的樣式化 hover 提示。圖表長條一律用**像素高度**（非 CSS `%`），才不會在 flex 或瀏覽器怪異行為下溢位成整欄色塊。
+載入時有錯落淡入，卡片 / 圓環 hover 浮起、長條與熱力格 hover 強調、表格列強調，各處也有對應的 hover 提示。
+圖表長條一律用**像素高度**（非 CSS `%`），才不會在 flex 或瀏覽器怪異行為下溢位成整欄色塊。
 
 所有日 / 時分桶與 session 範圍過濾都用**瀏覽器本地時區**，跨日邊界（如亞洲/台北的清晨）能正確分組。若沿用原始 UTC 前綴會分錯。
 
@@ -305,10 +307,46 @@ VIBE_USAGE_LOG_REQUESTS=1 node index.js
 # 還原切換前的 config（設定時已建立備份）
 mv ~/.vibe-usage/config.json.bak-local-* ~/.vibe-usage/config.json   # 選最新的 *.bak-local-*
 # 停止本地伺服器
-launchctl disable gui/$(id -u)/com.vibe-usage.local-server
+launchctl bootout gui/$(id -u)/com.vibe-usage.server
 ```
 
 **設定 / 憑證備份**
 
 `~/.vibe-usage/config.json` 存放真實 API key（0600）。切換前會在同目錄寫下
 `config.json.bak-local-<timestamp>` 備份。**切勿把 key 提交進版本控制。**
+
+---
+
+## 未來優化路徑（storage + 查詢）
+
+> 這段是**決策備忘**，不是待辦。目前維持 JSON，不動，因為：
+> 實測約 **2.6MB / 351 天 / ~3.6 buckets/day**（1274 buckets + 6797 sessions），
+> 外推 **5 年 ≈ 13MB**。JSON 全載入 + 原子寫回對這個量級是 **幾 ms**，遠低於感知閾值
+> （每 30 分鐘才 sync 一次）。**SQLite 在此量級無可量測優勢。**
+
+### 當前的查詢行為
+
+- `GET /api/usage` 會 `loadData()`（`readFileSync` + `JSON.parse` **整檔**），
+  buckets 已 server 端依 `days/from/to` 過濾，但 **sessions 全量回傳**，由 dashboard
+  在瀏覽器端依選定範圍篩選（計 Active / 總時長 / 訊息卡）。
+- 因資料量小，整檔 parse + 瀏覽器端 filter 都無感，「sessions 未 server 端過濾」**不是 bug**。
+
+### 優化時機點
+
+唯有出現以下真實痛點之一再進入優化：
+
+- data.json 使 `loadData()` 的 parse / 序列化有感延遲（例如 > 100ms，約對應 **~100+MB**）；
+- dashboard 每次載 view 因回傳全量 sessions 而明顯卡頓；
+- 出現多使用者 / 需跨時間聚合的自訂查詢；
+- 需保留更細的「原始事件流」（量級比 buckets/sessions 大 10~100 倍）。
+
+### 兩條路線的取捨
+
+| 路線 | 做法 | 優點 | 代價 |
+|------|------|------|------|
+| **A. JSON 分片（sharding）** | 依時間切成多個小檔（如 `data-2026-06.json`），查詢只 parse 所需月份的檔 | 保持 **zero-dependency**；格式仍與 CLI / Mac App 相容（回讀整份、僅查詢 parse 當月）；在 `store.js` 內改，影響面小 | 需實作分片寫入 / 讀取邏輯與多檔管理 |
+| **B. SQLite** | `WHERE bucketStart BETWEEN ...` 真 partial read | 原生支持時間範圍查詢、index、部分讀取 | 破 zero-dependency；要用 native module（better-sqlite3）或 Node 26+ 內建 `node:sqlite`（與 `engines: >=20` 衝突）；storage 格式需對齊 CLI / App；需一次資料遷移 |
+
+若真到那一天，**優先走 A（JSON 分片）**：它比 sqlite 更貼合本 repo 的 zero-dep /
+CLI-App-相容哲學，且可在 store 層做、不必動 API。**sqlite 只在「細粒度事件流 + 複雜查詢」
+同時出現時才值得考慮。** 在那之前，維持現狀，讓資料自然增長。
