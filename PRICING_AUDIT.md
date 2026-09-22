@@ -20,9 +20,10 @@ Audited 2026-08-06. Prices are USD per 1M tokens.
 
 ### OpenAI — https://developers.openai.com/api/docs/pricing
 
-| CSV model | CSV price | Verdict | Note |
-| --- | --- | --- | --- |
-| gpt-5.6-sol / terra / luna | 5/0.5/30, 2/0.2/12, 0.2/0.02/1.2 | ✅ official | short context; long ctx (>272K) is 2x input / 1.5x output |
+| CSV model | CSV price | Verdict | Note | Post-promo source |
+| --- | --- | --- | --- | --- |
+| gpt-6-astra | 10/1/50 | ✅ official | short context; long ctx 20/2/75 | |
+| gpt-5.6-sol / terra / luna | 4/0.4/20, 2/0.2/12, 0.2/0.02/1.2 | ✅ official | **sol is promo**: was 5/0.5/30, dropped to 4/0.4/20 from 2026-08-21, guaranteed to >= 2026-11-21, may revert after; long ctx (>272K) is 2x input / 1.5x output | https://developers.openai.com/api/docs/pricing (re-verify after 2026-11-21) |
 | gpt-5.5 / gpt-5.4 | 5/0.5/30, 2.5/0.25/15 | ✅ official | |
 | gpt-5.4-mini / nano | 0.75/0.075/4.5, 0.2/0.02/1.25 | ✅ official | |
 | gpt-5.5-pro / gpt-5.4-pro | 30 / - / 180 | ✅ official | no cache price |
@@ -44,6 +45,15 @@ Audited 2026-08-06. Prices are USD per 1M tokens.
 | Gemini 2.5 Flash | 0.3 / 2.5 | ✅ official | cache $0.03 |
 | Gemini 2.5 Flash-Lite | 0.1 / 0.4 | ✅ official | cache $0.01 |
 
+### DeepSeek V4.1 Flash — provider rates
+
+| Provider model ID | Input | Output | Cache read | Source |
+| --- | ---: | ---: | ---: | --- |
+| `deepseek-ai/DeepSeek-V4.1-Flash` (DeepInfra) | $0.20 | $0.60 | $0.006 | [DeepInfra official model page](https://deepinfra.com/dash/models/details?model=deepseek-ai%2FDeepSeek-V4.1-Flash) |
+| `accounts/fireworks/models/deepseek-v4p1-flash` (Fireworks) | $0.22 | $0.66 | $0.007 | [models.dev provider catalog](https://models.dev/) |
+
+Bare DeepSeek official API entries are intentionally omitted because this installation does not use that provider.
+
 Image/audio/video and tool rows (gpt-image*, sora, transcribe, web search, containers) were not verified — out of scope for per-token chat pricing.
 
 ## Required Changes
@@ -60,7 +70,8 @@ Image/audio/video and tool rows (gpt-image*, sora, transcribe, web search, conta
 | `claude-opus-4-6` | $5 | $25 | $0.50 | [Anthropic API pricing](https://www.anthropic.com/pricing#api) |
 | `claude-sonnet-4-6` | $3 | $15 | $0.30 | [Anthropic API pricing](https://www.anthropic.com/pricing#api) |
 | `claude-haiku-4-5` | $1 | $5 | $0.10 | [Anthropic API pricing](https://www.anthropic.com/pricing#api) |
-| `gpt-5.6-sol` | $5 | $30 | $0.50 | [OpenAI API pricing](https://openai.com/api/pricing/) |
+| `gpt-6-astra` | $10 | $50 | $1.00 | [OpenAI API pricing](https://openai.com/api/pricing/) |
+| `gpt-5.6-sol` | $4 | $20 | $0.40 | [OpenAI API pricing](https://openai.com/api/pricing/) |
 | `gpt-5.6-terra` | $2 | $12 | $0.20 | [OpenAI API pricing](https://openai.com/api/pricing/) |
 | `gpt-5.6-luna` | $0.20 | $1.20 | $0.02 | [OpenAI API pricing](https://openai.com/api/pricing/) |
 | `gemini-2.5-flash`, `google/gemini-2.5-flash` | $0.30 | $2.50 | $0.03 | [Google Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing#gemini-2.5-flash) |
