@@ -305,7 +305,11 @@ function computeRange() {
   return { curMin: range.from, curMax: range.to, span: range.to - range.from };
 }
 
+let loading = false;
 async function load() {
+  if (loading) return;
+  loading = true;
+  try {
   const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone);
   const { curMin, curMax, span } = computeRange();
   const mainParam = range.kind === 'preset'
@@ -328,6 +332,7 @@ async function load() {
     prev = { buckets: pj.buckets || [], sessions: (pj.sessions || []).filter((s) => sessInRange(s, prevMin, prevMax)) };
   }
   render();
+  } finally { loading = false; }
 }
 
 // Aggregate metrics (cost / tokens / session activity) from range-filtered data.
@@ -886,6 +891,10 @@ function syncRangeButtons() {
 
 load();
 syncRangeButtons();
+
+// Auto-refresh: poll every 30s while visible; refresh immediately on refocus.
+setInterval(() => { if (!document.hidden) load(); }, 30000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 </script>
 </body>
 </html>
