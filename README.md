@@ -76,7 +76,7 @@ vibe-usage-local-server/
 
 ```bash
 # 0. （可選）以 npm 全域安裝 — 之後直接 `vibe-usage-server` 即可
-npm pack && npm install -g ./vibe-usage-local-server-0.1.0.tgz
+npm pack && npm install -g ./vibe-usage-local-server-0.1.1.tgz
 
 # 1. 啟動伺服器（手動，或改用 launchd，見下方）
 node index.js          # 或已全域安裝：vibe-usage-server
@@ -103,7 +103,7 @@ VIBE_USAGE_API_URL=http://127.0.0.1:3456 npx @vibe-cafe/vibe-usage sync
 
 ```bash
 # 1. 安裝
-npm install -g vibe-usage-local-server   # 或從本地 tgz：npm install -g ./vibe-usage-local-server-0.1.0.tgz
+npm install -g vibe-usage-local-server   # 或從本地 tgz：npm install -g ./vibe-usage-local-server-0.1.1.tgz
 
 # 2. 建立自訂資料目錄（可選；不設就預設 ~/.vibe-usage-server/）
 mkdir -p /Volumes/Data/vibe-usage

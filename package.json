@@ -1,12 +1,13 @@
 {
   "name": "vibe-usage-local-server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "vibe-usage-local-server: fully-local server for the vibe-usage API (ingest/usage/settings/delete), zero-dependency Node. The rest of the vibe-usage stack (CLI + Mac app) reads it via config.apiUrl.",
   "type": "module",
   "bin": {
-    "vibe-usage-server": "./index.js"
+    "vibe-usage-server": "./bin/vibe-usage-server.js"
   },
   "files": [
+    "bin/",
     "src/",
     "ui/",
     "index.js"
