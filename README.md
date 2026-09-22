@@ -45,7 +45,7 @@ CLI 與 Mac App 都會從 `~/.vibe-usage/config.json`（DEBUG 版另讀 `config.
 | Endpoint | 用途 | 必備 |
 |----------|------|------|
 | `POST /api/usage/ingest` | 接收 buckets+sessions（gzip、Bearer 認證、upsert 去重） | ✅ |
-| `GET /api/usage` | 回傳過濾後的 buckets（`days`/`from`/`to`/`tz`） | ✅ |
+| `GET /api/usage` | 回傳過濾後的 buckets（`days`/`from`/`to`/`tz`）＋ `unpricedModels`（價格表缺的 model 清單） | ✅ |
 | `GET /api/usage/settings` | 回傳 `{ uploadProject: true }`（CLI 同步前會先取） | ✅ |
 | `DELETE /api/usage/ingest` | 重設（可加 `?hostname=`） | 選用 |
 | `POST /api/usage/device/code` + `/poll` | 不支援 — 請用 `--manual-key` | — |
@@ -233,13 +233,14 @@ override 價格表依**優先序**找，第一個命中的生效：
 - **Buckets**：以 `source|model|project|hostname|bucketStart` 去重；較大的既有快照勝出（「保護」，與上游一致）。
 - **Sessions**：以 `source|sessionHash` 去重。
 - 寫入採原子寫入（寫臨時檔再 rename）。
+- **備份與復原**：每次啟動首次讀取時，把健康的 `data.json` 快照一份成 `data.json.bak`；若 `data.json` 損毀，自動改讀 `.bak`，並把壞檔保留為 `data.json.corrupt` 供人工檢查。
 
 ---
 
 ## 測試
 
 ```bash
-node --test "test/*.test.js"     # 8 項測試：計價、去重、認證、過濾、刪除
+node --test "test/*.test.js"     # 11 項測試：計價、去重、認證、過濾、刪除、未計價清單、綁定守護、備份復原
 ```
 
 ---
@@ -267,6 +268,7 @@ launchctl enable gui/$(id -u)/com.vibe-usage.server   # 重新啟用
 
 Plist：`~/Library/LaunchAgents/com.vibe-usage.server.plist`
 Logs：`~/.vibe-usage/logs/` (`vibe-usage-server.log` / `server.err`)
+Log rotation：`install-launchd.sh` 會嘗試（需 sudo，非互動）安裝 `/etc/newsyslog.d/com.vibe-usage.server.conf`——1MB 輪替、保留 3 份壓縮檔；無 sudo 時印出手動指令。
 State：`launchctl print gui/$(id -u)/com.vibe-usage.server`
 
 > 若 launchd 想搭配自訂資料目錄，在 plist 的 `EnvironmentVariables` 加入
