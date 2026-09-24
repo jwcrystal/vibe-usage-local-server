@@ -1,0 +1,11 @@
+# AGENTS.md — vibe-usage-local-server
+
+## 發佈 / 版號
+
+本專案與 vibe-usage-desktop 直接分發 build 給使用者（非 npm 發佈）；desktop 透過 `scripts/sync-server.sh` vendor 本專案原始碼，安裝檔檔名帶版號。
+
+規則：每次要把 build 交給別人之前——
+
+1. `npm version patch`（自動建 commit + tag `vX.Y.Z`）；累積的功能量值得明確標記時才升 minor
+2. 共用檔案（`src/ui/dashboard.html` ↔ desktop 的 `server/ui/dashboard.html`）同步修改時，兩邊各自 bump
+3. push 帶 tag：`git push --follow-tags`
