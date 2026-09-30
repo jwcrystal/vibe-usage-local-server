@@ -345,3 +345,14 @@ launchctl bootout gui/$(id -u)/com.vibe-usage.server
 若真到那一天，**優先走 A（JSON 分片）**：它比 sqlite 更貼合本 repo 的 zero-dep /
 CLI-App-相容哲學，且可在 store 層做、不必動 API。**sqlite 只在「細粒度事件流 + 複雜查詢」
 同時出現時才值得考慮。** 在那之前，維持現狀，讓資料自然增長。
+
+---
+
+## 致謝
+
+本專案受 [vibe-usage](https://github.com/vibe-cafe/vibe-usage) 啟發——在本地重現其資料接收
+與 dashboard API，並與其 CLI（`@vibe-cafe/vibe-usage`，MIT）直接相容。
+
+## License
+
+MIT — see [LICENSE](LICENSE).

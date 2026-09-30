@@ -19,5 +19,5 @@
     "start": "node index.js",
     "test": "node --test test/"
   },
-  "license": "UNLICENSED"
+  "license": "MIT"
 }
