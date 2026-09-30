@@ -17,7 +17,7 @@
   },
   "scripts": {
     "start": "node index.js",
-    "test": "node --test test/"
+    "test": "node --test"
   },
   "license": "MIT"
 }
