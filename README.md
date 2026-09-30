@@ -1,173 +1,195 @@
 # vibe-usage-local-server
 
-在本地重現 vibe-usage 的資料接收與 dashboard API，讓整套 vibe-usage（CLI + macOS App）
-**完全不依賴雲端運作**——不上傳 vibecafe.ai，並可自行調整模型計價。
+English | [繁體中文](README.zh-TW.md)
 
-- **Node.js ≥ 20，零運行時依賴**
-- 接收 `@vibe-cafe/vibe-usage` CLI 的 token 用量，再回傳給 Mac App dashboard
-- 費用（`estimatedCost`）在**讀取時**依本地可編輯的價格表即時計算，改價格立即套用至既有資料，無需重同步
-- 資料以 JSON 存放於 `~/.vibe-usage-server/data.json`，**絕不離開本機**
+> **Canonical version: 繁體中文** ([README.zh-TW.md](README.zh-TW.md)) — this
+> English README tracks it; when they diverge, the Chinese one wins.
+
+A fully-local reimplementation of vibe-usage's data-ingest and dashboard API,
+so the entire vibe-usage stack (CLI + macOS app) runs **cloud-free** — nothing
+is uploaded to vibecafe.ai, and the model price table is yours to edit.
+
+- **Node.js ≥ 20, zero runtime dependencies**
+- Ingests token usage from the `@vibe-cafe/vibe-usage` CLI and serves it back to the Mac app dashboard
+- Costs (`estimatedCost`) are computed **at read time** from a locally editable price table — change a price and all existing data updates instantly, no re-sync needed
+- Data lives in `~/.vibe-usage-server/data.json` and **never leaves your machine**
 
 ---
 
-## 目錄
+## Contents
 
-- [架構](#架構)
-- [快速開始](#快速開始)
+- [Architecture](#architecture)
+- [Quick start](#quick-start)
 - [Web dashboard](#web-dashboard)
-- [macOS App 連線](#macos-app-連線)
-- [本地計價](#本地計價)
-- [儲存](#儲存)
-- [測試](#測試)
-- [自動啟動（launchd）](#自動啟動launchd)
-- [除錯與回滾](#除錯與回滾)
-- [未來優化路徑（storage + 查詢）](#未來優化路徑storage--查詢)
+- [Connecting the macOS app](#connecting-the-macos-app)
+- [Local pricing](#local-pricing)
+- [Storage](#storage)
+- [Tests](#tests)
+- [Auto-start (launchd)](#auto-start-launchd)
+- [Debugging & rollback](#debugging--rollback)
+- [Future storage + query work](#future-storage--query-work)
 
 ---
 
-## 架構
+## Architecture
 
 ```
-本機工具日誌 (claude / codex / opencode …)
-   │  ① ② CLI 解析 + 上傳   (CLI, 本機)
+Local tool logs (claude / codex / opencode …)
+   │  ① ② parse + upload   (CLI, local)
    ▼
-vibe-usage-local-server  ◀── ③ 讀回  ────  macOS App dashboard
-   │  (本 repo, launchd 長駐, port 3456)
+vibe-usage-local-server  ◀── ③ read back ────  macOS App dashboard
+   │  (this repo, launchd daemon, port 3456)
    ▼
-~/.vibe-usage-server/data.json   (本機 JSON 儲存)
+~/.vibe-usage-server/data.json   (local JSON storage)
 ```
 
-CLI 與 Mac App 都會從 `~/.vibe-usage/config.json`（DEBUG 版另讀 `config.dev.json`）讀取
-`apiUrl`。把它指向 `http://127.0.0.1:3456`，所有流量便改送本地伺服器，**無需改動 CLI / App 原始碼**。
+Both the CLI and the Mac app read `apiUrl` from `~/.vibe-usage/config.json`
+(DEBUG builds read `config.dev.json` instead). Point it at
+`http://127.0.0.1:3456` and all traffic goes to the local server — **no CLI or
+app source changes required**.
 
-### API 端點
+### API endpoints
 
-| Endpoint | 用途 | 必備 |
-|----------|------|------|
-| `POST /api/usage/ingest` | 接收 buckets+sessions（gzip、Bearer 認證、upsert 去重） | ✅ |
-| `GET /api/usage` | 回傳過濾後的 buckets（`days`/`from`/`to`/`tz`）＋ `unpricedModels`（價格表缺的 model 清單） | ✅ |
-| `GET /api/usage/settings` | 回傳 `{ uploadProject: true }`（CLI 同步前會先取） | ✅ |
-| `DELETE /api/usage/ingest` | 重設（可加 `?hostname=`） | 選用 |
-| `POST /api/usage/device/code` + `/poll` | 不支援 — 請用 `--manual-key` | — |
+| Endpoint | Purpose | Support |
+|----------|---------|---------|
+| `POST /api/usage/ingest` | Receive buckets+sessions (gzip, Bearer auth, upsert dedup) | ✅ |
+| `GET /api/usage` | Return filtered buckets (`days`/`from`/`to`/`tz`) + `unpricedModels` (models missing from the price table) | ✅ |
+| `GET /api/usage/settings` | Returns `{ uploadProject: true }` (the CLI fetches it before syncing) | ✅ |
+| `DELETE /api/usage/ingest` | Reset (optional `?hostname=`) | optional |
+| `POST /api/usage/device/code` + `/poll` | Not supported — use `--manual-key` | — |
 
-### 專案結構
+### Project structure
 
 ```
 vibe-usage-local-server/
-├── index.js               # 進入點 + npm bin（node index.js / vibe-usage-server）
+├── index.js               # entry point + npm bin (node index.js / vibe-usage-server)
 ├── src/
-│   ├── server.js         # HTTP server、路由、認證、gzip、過濾
-│   ├── store.js          # JSON 持久化、bucket/session 去重
-│   ├── prices.js         # 價格表載入與費用計算
-│   ├── prices.json       # ★ 你的本地價格表（可自由編輯）
+│   ├── server.js         # HTTP server, routing, auth, gzip, filtering
+│   ├── store.js          # JSON persistence, bucket/session dedup
+│   ├── prices.js         # price table loading & cost math
+│   ├── prices.json       # ★ your local price table (edit freely)
 │   └── ui/
-│       └── dashboard.html # 單檔 Web dashboard（零依賴）
+│       └── dashboard.html # single-file web dashboard (zero deps)
 ├── scripts/
-│   ├── com.vibe-usage.server.plist # launchd LaunchAgent 範本
-│   ├── install-launchd.sh           # 安裝 + 啟動（登入自啟、當機重啟）
-│   └── uninstall-launchd.sh         # 移除
+│   ├── com.vibe-usage.server.plist # launchd LaunchAgent template
+│   ├── install-launchd.sh           # install + start (login autostart, crash restart)
+│   └── uninstall-launchd.sh         # remove
 └── test/
-    └── server.test.js    # node:test 測試 (8 項)
+    └── server.test.js    # node:test suite (11 tests)
 ```
 
 ---
 
-## 快速開始
+## Quick start
 
 ```bash
-# 0. （可選）以 npm 全域安裝 — 之後直接 `vibe-usage-server` 即可
+# 0. (optional) install globally via npm — then just run `vibe-usage-server`
 npm pack && npm install -g ./vibe-usage-local-server-0.1.1.tgz
 
-# 1. 啟動伺服器（手動，或改用 launchd，見下方）
-node index.js          # 或已全域安裝：vibe-usage-server
+# 1. Start the server (manually, or use launchd below)
+node index.js          # or with a global install: vibe-usage-server
 #   Vibe Usage local server listening on http://127.0.0.1:3456
 
-# 2. 將 CLI 指到伺服器
+# 2. Point the CLI at the server
 npx @vibe-cafe/vibe-usage init --manual-key vbu_xxx
-#    確認 ~/.vibe-usage/config.json 為：
+#    confirm ~/.vibe-usage/config.json ends up as:
 #    { "apiKey": "vbu_xxx", "apiUrl": "http://127.0.0.1:3456" }
 
-# 3. 同步（寫入本地伺服器）
+# 3. Sync (writes into the local server)
 VIBE_USAGE_API_URL=http://127.0.0.1:3456 npx @vibe-cafe/vibe-usage sync
 ```
 
-> 打包：`npm pack` 產出 `vibe-usage-local-server-<version>.tgz`，內容為純 Node source
-> （`src/`、`ui/`、`index.js`），零依賴、任一平台 npm install 皆可直接執行（需 Node ≥ 20）。
+> Packaging: `npm pack` produces `vibe-usage-local-server-<version>.tgz`
+> containing pure Node source (`src/`, `ui/`, `index.js`) — zero dependencies;
+> `npm install` on any platform (Node ≥ 20) just works.
 
-### 正式安裝（npm 全域）＋自訂資料目錄
+### Proper install (npm global) + custom data directory
 
-若不想從 repo 手動啟動，可用 npm 全域安裝，之後直接 `vibe-usage-server`。資料與
-價格預設都在 `~/.vibe-usage-server/`；可用 `VIBE_USAGE_SERVER_DIR` 指到自訂目錄——
-
-把 server 跑在自訂目錄，資料 / 價格 / 日誌都收在一起：
+If you'd rather not run from a checkout, install globally and use
+`vibe-usage-server` directly. Data and prices default to
+`~/.vibe-usage-server/`; point `VIBE_USAGE_SERVER_DIR` at a custom directory
+to keep data, prices, and logs together:
 
 ```bash
-# 1. 安裝
-npm install -g vibe-usage-local-server   # 或從本地 tgz：npm install -g ./vibe-usage-local-server-0.1.1.tgz
+# 1. Install
+npm install -g vibe-usage-local-server   # or from a local tgz: npm install -g ./vibe-usage-local-server-0.1.1.tgz
 
-# 2. 建立自訂資料目錄（可選；不設就預設 ~/.vibe-usage-server/）
+# 2. Create a custom data directory (optional; defaults to ~/.vibe-usage-server/)
 mkdir -p /Volumes/Data/vibe-usage
 
-# 3. 啟動（用 VIBE_USAGE_SERVER_DIR 指定資料目錄；此 env 同時決定 data.json 與 prices.json 位置）
+# 3. Start (VIBE_USAGE_SERVER_DIR sets the data dir; it locates both data.json and prices.json)
 VIBE_USAGE_SERVER_DIR=/Volumes/Data/vibe-usage vibe-usage-server
 #   Vibe Usage local server listening on http://127.0.0.1:3456
 #   Data: /Volumes/Data/vibe-usage/data.json
 
-# 4. 把 CLI 指到伺服器
+# 4. Point the CLI at the server
 npx @vibe-cafe/vibe-usage init --manual-key vbu_xxx
-#    確認 ~/.vibe-usage/config.json 為：
+#    confirm ~/.vibe-usage/config.json ends up as:
 #    { "apiKey": "vbu_xxx", "apiUrl": "http://127.0.0.1:3456" }
 
-# 5. 同步（在第 3 步同樣的 VIBE_USAGE_SERVER_DIR 環境下，讓 CLI 也寫進同一目錄）
+# 5. Sync (with the same VIBE_USAGE_SERVER_DIR as step 3, so the CLI writes into the same dir)
 VIBE_USAGE_SERVER_DIR=/Volumes/Data/vibe-usage \
 VIBE_USAGE_API_URL=http://127.0.0.1:3456 \
 npx @vibe-cafe/vibe-usage sync
 ```
 
-> **`VIBE_USAGE_SERVER_DIR` 同時決定 `data.json` 與 `prices.json` 的位置**——把一個
-> `prices.json` 放進該目錄即覆蓋內建價格表（見下方 [本地計價](#本地計價)）。
-> 注意：server 與 CLI 若都要用同一資料目錄，就讓兩者都設同一個 `VIBE_USAGE_SERVER_DIR`。
+> **`VIBE_USAGE_SERVER_DIR` locates both `data.json` and `prices.json`** — drop
+> a `prices.json` in that directory to override the built-in table (see
+> [Local pricing](#local-pricing)).
+> Note: for the server and CLI to share one data directory, set the same
+> `VIBE_USAGE_SERVER_DIR` for both.
 
 ---
 
 ## Web dashboard
 
-伺服器在 **`http://127.0.0.1:3456/`**（或 `/usage`）提供一個**零依賴、單檔**的深色 dashboard：
+The server serves a **zero-dependency, single-file** dark dashboard at
+**`http://127.0.0.1:3456/`** (or `/usage`):
 
-- **10 張 KPI 卡**（費用 / 輸入 / 輸出 / 快取 token、活躍 / 總時長、會話數、總 / 用戶訊息數），各帶**與前一等長時段相比的 % 變化**
-- **用量趨勢**：依選定時間範圍自動切換每小時 / 每日粒度的堆疊 token 圖（輸出 / 輸入 / 快取），並可切換 費用 / 輸出 / 輸入 / 快取 指標
-- **分時活躍熱力圖**（7×24）
-- **分布圓環圖**：模型 / 工具 / 項目 / 終端（Token / 費用 切換）
-- **詳細記錄表**：可排序，終端欄預設遮蔽、可一鍵切換顯示
-- **時間範圍**：今天 / 24H / 7D / 30D / 90D / 自定義，皆重新查詢 `GET /api/usage`
-- **維度篩選**：工具 / 模型 / 項目 / 終端
+- **10 KPI cards** (cost / input / output / cache tokens, active / total duration, session count, total / user messages), each with **% change vs the previous equal-length period**
+- **Usage trends**: stacked token chart (output / input / cache) that auto-switches hourly/daily granularity by range, switchable between cost / output / input / cache
+- **Activity heatmap** (7×24)
+- **Distribution donuts**: model / tool / project / terminal (token / cost toggle)
+- **Detail table**: sortable, terminal column masked by default with a one-click reveal
+- **Time ranges**: today / 24H / 7D / 30D / 90D / custom — each re-queries `GET /api/usage`
+- **Dimension filters**: tool / model / project / terminal
 
-載入時有錯落淡入，卡片 / 圓環 hover 浮起、長條與熱力格 hover 強調、表格列強調，各處也有對應的 hover 提示。
-圖表長條一律用**像素高度**（非 CSS `%`），才不會在 flex 或瀏覽器怪異行為下溢位成整欄色塊。
+Staggered fade-in on load, card/donut hover lift, bar and heatmap-cell hover
+emphasis, table row highlight, and tooltips throughout. Chart bars use
+**pixel heights** (not CSS `%`) so they never overflow into full-column blocks
+under flex or browser quirks.
 
-所有日 / 時分桶與 session 範圍過濾都用**瀏覽器本地時區**，跨日邊界（如亞洲/台北的清晨）能正確分組。若沿用原始 UTC 前綴會分錯。
+All day/hour bucketing and session-range filtering use the **browser's local
+timezone**, so day boundaries group correctly (e.g. early morning in
+Asia/Taipei). The original UTC-prefix behavior would mis-bucket them.
 
-伺服器把期望的 API key 注入頁面，供瀏覽器對 `/api/usage` 認證。因為伺服器預設只綁定 `127.0.0.1`，key 不會外洩。任何瀏覽器都能執行，因此也適用於沒有 Mac App 的機器（Windows / Linux）。
+The server injects the expected API key into the page for `/api/usage` auth.
+The server binds only to `127.0.0.1` by default, so the key doesn't leave the
+machine. Any browser works — including machines without the Mac app
+(Windows / Linux).
 
 ```bash
-open http://127.0.0.1:3456/        # 伺服器啟動後
+open http://127.0.0.1:3456/        # once the server is running
 ```
 
-> 註：伺服器回傳所有 sessions 不做日過濾（與上游一致）；dashboard 會在本地依選定範圍過濾，
-> 讓 Active / 總時長 / 訊息卡只統計該範圍內的 session。
+> Note: the server returns all sessions without day filtering (matching
+> upstream); the dashboard filters them client-side by the selected range, so
+> the Active / duration / message cards only count sessions within range.
 
 ---
 
-## macOS App 連線
+## Connecting the macOS app
 
-在**兩個** config 檔都設定 `apiUrl`（正式版 App 讀 `config.json`，DEBUG 版讀 `config.dev.json`）：
+Set `apiUrl` in **both** config files (the release app reads `config.json`,
+DEBUG builds read `config.dev.json`):
 
 ```bash
-# ~/.vibe-usage/config.json 與 ~/.vibe-usage/config.dev.json
+# ~/.vibe-usage/config.json and ~/.vibe-usage/config.dev.json
 { "apiKey": "vbu_xxx", "apiUrl": "http://127.0.0.1:3456" }
 ```
 
-然後**完全結束並重開 App**——它會在啟動時讀取 config。開啟 popover 觸發讀取，可由伺服器日誌確認：
+Then **fully quit and reopen the app** — it reads config at launch. Open the
+popover to trigger a read; the server log confirms:
 
 ```
 GET /api/usage?days=1&tz=Asia/Taipei -> 200  [ua=VibeUsage CFNetwork/...]
@@ -176,27 +198,31 @@ POST /api/usage/ingest -> 200                (app-driven CLI sync)
 
 ---
 
-## 本地計價
+## Local pricing
 
-`estimatedCost` 在**讀取時**依價格表即時計算，以 CLI 輸出的**確切 `model` 字串**為鍵（該字串已含 provider，
-如 `accounts/fireworks/models/glm-5p2`、`zai-org/GLM-5.2`）。**改價格表，所有既有資料的費用立刻更新。**
-內建價格表目前涵蓋 **91 個 model**。
+`estimatedCost` is computed **at read time** from the price table, keyed by
+the exact `model` string the CLI emits (the string already includes the
+provider, e.g. `accounts/fireworks/models/glm-5p2`, `zai-org/GLM-5.2`).
+**Change the table and every existing record's cost updates instantly.** The
+built-in table currently covers **103 models**.
 
-### prices.json 要放在哪？
+### Where does prices.json go?
 
-override 價格表依**優先序**找，第一個命中的生效：
+Override price tables are resolved in **priority order**; first hit wins:
 
-| 順位 | 路徑 | 適用情境 |
-|------|------|----------|
-| 1 | `~/.vibe-usage-server/prices.json`（資料目錄，可用 `VIBE_USAGE_SERVER_DIR` 搬移） | **建議**——與使用者資料放一起，重裝套件不會被清掉 |
-| 2 | `src/prices.json` | 純 Node source 開發時，直接編輯內建預設表 |
+| Priority | Path | Use case |
+|----------|------|----------|
+| 1 | `~/.vibe-usage-server/prices.json` (data dir, relocatable via `VIBE_USAGE_SERVER_DIR`) | **Recommended** — lives with user data, survives reinstalls |
+| 2 | `src/prices.json` | Pure-Node-source development: edit the built-in default directly |
 
-啟動時依序檢查（資料目錄優先）；兩者都沒有、或檔案不合法（不含 `models` 物件）就退回**內嵌預設表**
-（`src/prices.json`）。
+Checked in order at startup (data dir first); if neither exists or the file is
+invalid (no `models` object), it falls back to the **embedded default table**
+(`src/prices.json`).
 
-> Node source（`node index.js`）：除了資料目錄的 override，內建表就是 `src/prices.json`，開發時直接改它即可。
+> Node source (`node index.js`): besides the data-dir override, the built-in
+> table is just `src/prices.json` — edit it directly while developing.
 
-### 完整自訂範例
+### Full customization example
 
 ```jsonc
 {
@@ -213,145 +239,165 @@ override 價格表依**優先序**找，第一個命中的生效：
 }
 ```
 
-### 欄位說明
+### Field reference
 
-- `input` / `output` / `cacheReadMtok` = 每 **100 萬** token 的**美元**計價，皆可省略（省略視為 0）。
-- 成本公式（`prices.js`）：`input×inRate + (output + reasoningOutput)×outRate + cachedInput×cacheReadRate`。
-- `vendor` / `source` 僅供文件說明，**不參與計費計算**。
-- 價格表中**不存在**的 model → `estimatedCost` 為 `null`（與上游「未匹配 model 得出 nil」一致）。
-- 計價來源：`official` = 已對照 provider 公布價格驗證（Anthropic、OpenAI、Google Gemini、
-  Fireworks、DeepInfra、DeepSeek、Kimi、MiniMax）；`openrouter` = 取自 OpenRouter `/api/v1/models`，尚未經 vendor 驗證。
-- OpenCode Go 為**訂閱制**（首月 $5 / 之後每月 $10）；其 model 刻意以 vendor 每 token *估計*
-  計價，讓費用欄位反映**實際用量價值**而非真實訂閱帳單。
+- `input` / `output` / `cacheReadMtok` = USD per **1 million** tokens; all optional (missing = 0).
+- Cost formula (`prices.js`): `input×inRate + (output + reasoningOutput)×outRate + cachedInput×cacheReadRate`.
+- `vendor` / `source` are documentation-only, **not used in cost math**.
+- Models **absent** from the table → `estimatedCost` is `null` (matches upstream's "unmatched model yields nil").
+- Price sources: `official` = verified against the provider's published prices (Anthropic, OpenAI, Google Gemini, Fireworks, DeepInfra, DeepSeek, Kimi, MiniMax); `openrouter` = taken from OpenRouter's `/api/v1/models`, not yet vendor-verified.
+- OpenCode Go is **subscription-based** (first month $5 / $10 per month after); its models are deliberately priced as per-token *estimates* of vendor rates so the cost column reflects **actual usage value**, not your real subscription bill.
 
 ---
 
-## 儲存
+## Storage
 
-- **路徑**：`~/.vibe-usage-server/data.json`，可用 `VIBE_USAGE_SERVER_DIR` 環境變數覆寫整個資料目錄
-  （eg. `VIBE_USAGE_SERVER_DIR=/Volumes/Data/vibe-usage` → `data.json` 與 `prices.json` 都在該目錄）。
-- **Buckets**：以 `source|model|project|hostname|bucketStart` 去重；較大的既有快照勝出（「保護」，與上游一致）。
-- **Sessions**：以 `source|sessionHash` 去重。
-- 寫入採原子寫入（寫臨時檔再 rename）。
-- **備份與復原**：每次啟動首次讀取時，把健康的 `data.json` 快照一份成 `data.json.bak`；若 `data.json` 損毀，自動改讀 `.bak`，並把壞檔保留為 `data.json.corrupt` 供人工檢查。
+- **Path**: `~/.vibe-usage-server/data.json`; the whole data directory can be
+  relocated with `VIBE_USAGE_SERVER_DIR` (e.g.
+  `VIBE_USAGE_SERVER_DIR=/Volumes/Data/vibe-usage` puts both `data.json` and
+  `prices.json` there).
+- **Buckets**: deduped by `source|model|project|hostname|bucketStart`; the
+  larger existing snapshot wins ("protection", matching upstream).
+- **Sessions**: deduped by `source|sessionHash`.
+- Writes are atomic (write to a temp file, then rename).
+- **Backup & recovery**: on the first read of each run, a healthy `data.json`
+  is snapshotted to `data.json.bak`; if `data.json` is corrupt, the server
+  falls back to `.bak` and preserves the bad file as `data.json.corrupt` for
+  inspection.
 
 ---
 
-## 測試
+## Tests
 
 ```bash
-node --test "test/*.test.js"     # 11 項測試：計價、去重、認證、過濾、刪除、未計價清單、綁定守護、備份復原
+node --test "test/*.test.js"     # 11 tests: pricing, dedup, auth, filtering, delete, unpriced list, bind guard, backup recovery
 ```
 
 ---
 
-## 自動啟動（launchd）
+## Auto-start (launchd)
 
-伺服器以使用者 **LaunchAgent** 管理，**登入即啟動**（`RunAtLoad`）、**當機自動重啟**（`KeepAlive`）。
+The server runs as a user **LaunchAgent**: **starts at login** (`RunAtLoad`),
+**restarts on crash** (`KeepAlive`).
 
-用內建腳本安裝（會自動解析 `vibe-usage-server` 命令位置、寫入 plist 並啟動）：
+Install with the bundled script (resolves the `vibe-usage-server` command
+path, writes the plist, and starts it):
 
 ```bash
 ./scripts/install-launchd.sh
-# 若 command 不在 PATH：./scripts/install-launchd.sh --bin /path/to/vibe-usage-server
+# if the command isn't on PATH: ./scripts/install-launchd.sh --bin /path/to/vibe-usage-server
 
-# 停止（job 保留）
+# stop (job kept)
 launchctl bootout gui/$(id -u)/com.vibe-usage.server
 
-# 完全停用（未來登入不啟動）
+# fully disable (won't start at next login)
 launchctl disable gui/$(id -u)/com.vibe-usage.server
-launchctl enable gui/$(id -u)/com.vibe-usage.server   # 重新啟用
+launchctl enable gui/$(id -u)/com.vibe-usage.server   # re-enable
 
-# 移除 LaunchAgent
+# remove the LaunchAgent
 ./scripts/uninstall-launchd.sh
 ```
 
-Plist：`~/Library/LaunchAgents/com.vibe-usage.server.plist`
-Logs：`~/.vibe-usage/logs/` (`vibe-usage-server.log` / `server.err`)
-Log rotation：`install-launchd.sh` 會嘗試（需 sudo，非互動）安裝 `/etc/newsyslog.d/com.vibe-usage.server.conf`——1MB 輪替、保留 3 份壓縮檔；無 sudo 時印出手動指令。
-State：`launchctl print gui/$(id -u)/com.vibe-usage.server`
+Plist: `~/Library/LaunchAgents/com.vibe-usage.server.plist`
+Logs: `~/.vibe-usage/logs/` (`vibe-usage-server.log` / `server.err`)
+Log rotation: `install-launchd.sh` tries (needs sudo, non-interactive) to
+install `/etc/newsyslog.d/com.vibe-usage.server.conf` — 1MB rotation, 3
+compressed copies kept; without sudo it prints the manual command.
+State: `launchctl print gui/$(id -u)/com.vibe-usage.server`
 
-> 若 launchd 想搭配自訂資料目錄，在 plist 的 `EnvironmentVariables` 加入
-> `<key>VIBE_USAGE_SERVER_DIR</key><string>/Volumes/Data/vibe-usage</string>` 再
-> `launchctl bootstrap gui/$(id -u) <plist>` 重新載入。
+> To use a custom data dir under launchd, add
+> `<key>VIBE_USAGE_SERVER_DIR</key><string>/Volumes/Data/vibe-usage</string>`
+> to the plist's `EnvironmentVariables`, then
+> `launchctl bootstrap gui/$(id -u) <plist>` to reload.
 
-### 請求日誌（除錯）
+### Request logging (debugging)
 
-可讓伺服器記錄每個收到的請求（確認 App / CLI 確實在打）：
+Make the server log every request it receives (to confirm the app / CLI
+really hits it):
 
 ```bash
-# 暫時在 plist 的 EnvironmentVariables 加：
+# temporarily add to the plist's EnvironmentVariables:
 #   <key>VIBE_USAGE_LOG_REQUESTS</key><string>1</string>
-# 或直接執行：
+# or just run:
 VIBE_USAGE_LOG_REQUESTS=1 node index.js
 ```
 
-### 同步時序備註
+### Sync timing notes
 
-同步節奏**由 App 驅動**（App 的 `SyncScheduler` 每 **30 分鐘**，外加開啟 popover 時）。
-這個 launchd 只負責保持**伺服器**存活，不改變同步時序。當 `apiUrl` 指向 localhost 時，
-既有的 `ai.vibecafe.vibe-usage` CLI daemon 也會自動同步到這台伺服器。
+Sync cadence is **app-driven** (the app's `SyncScheduler` fires every
+**30 minutes**, plus on popover open). This launchd agent only keeps the
+**server** alive; it doesn't change sync timing. When `apiUrl` points at
+localhost, the existing `ai.vibecafe.vibe-usage` CLI daemon also syncs to
+this server automatically.
 
 ---
 
-## 除錯與回滾
+## Debugging & rollback
 
-**回到 vibecafe.ai**
+**Back to vibecafe.ai**
 
 ```bash
-# 還原切換前的 config（設定時已建立備份）
-mv ~/.vibe-usage/config.json.bak-local-* ~/.vibe-usage/config.json   # 選最新的 *.bak-local-*
-# 停止本地伺服器
+# restore the pre-switch config (a backup was made at switch time)
+mv ~/.vibe-usage/config.json.bak-local-* ~/.vibe-usage/config.json   # pick the newest *.bak-local-*
+# stop the local server
 launchctl bootout gui/$(id -u)/com.vibe-usage.server
 ```
 
-**設定 / 憑證備份**
+**Config / credential backup**
 
-`~/.vibe-usage/config.json` 存放真實 API key（0600）。切換前會在同目錄寫下
-`config.json.bak-local-<timestamp>` 備份。**切勿把 key 提交進版本控制。**
-
----
-
-## 未來優化路徑（storage + 查詢）
-
-> 這段是**決策備忘**，不是待辦。目前維持 JSON，不動，因為：
-> 實測約 **2.6MB / 351 天 / ~3.6 buckets/day**（1274 buckets + 6797 sessions），
-> 外推 **5 年 ≈ 13MB**。JSON 全載入 + 原子寫回對這個量級是 **幾 ms**，遠低於感知閾值
-> （每 30 分鐘才 sync 一次）。**SQLite 在此量級無可量測優勢。**
-
-### 當前的查詢行為
-
-- `GET /api/usage` 會 `loadData()`（`readFileSync` + `JSON.parse` **整檔**），
-  buckets 已 server 端依 `days/from/to` 過濾，但 **sessions 全量回傳**，由 dashboard
-  在瀏覽器端依選定範圍篩選（計 Active / 總時長 / 訊息卡）。
-- 因資料量小，整檔 parse + 瀏覽器端 filter 都無感，「sessions 未 server 端過濾」**不是 bug**。
-
-### 優化時機點
-
-唯有出現以下真實痛點之一再進入優化：
-
-- data.json 使 `loadData()` 的 parse / 序列化有感延遲（例如 > 100ms，約對應 **~100+MB**）；
-- dashboard 每次載 view 因回傳全量 sessions 而明顯卡頓；
-- 出現多使用者 / 需跨時間聚合的自訂查詢；
-- 需保留更細的「原始事件流」（量級比 buckets/sessions 大 10~100 倍）。
-
-### 兩條路線的取捨
-
-| 路線 | 做法 | 優點 | 代價 |
-|------|------|------|------|
-| **A. JSON 分片（sharding）** | 依時間切成多個小檔（如 `data-2026-06.json`），查詢只 parse 所需月份的檔 | 保持 **zero-dependency**；格式仍與 CLI / Mac App 相容（回讀整份、僅查詢 parse 當月）；在 `store.js` 內改，影響面小 | 需實作分片寫入 / 讀取邏輯與多檔管理 |
-| **B. SQLite** | `WHERE bucketStart BETWEEN ...` 真 partial read | 原生支持時間範圍查詢、index、部分讀取 | 破 zero-dependency；要用 native module（better-sqlite3）或 Node 26+ 內建 `node:sqlite`（與 `engines: >=20` 衝突）；storage 格式需對齊 CLI / App；需一次資料遷移 |
-
-若真到那一天，**優先走 A（JSON 分片）**：它比 sqlite 更貼合本 repo 的 zero-dep /
-CLI-App-相容哲學，且可在 store 層做、不必動 API。**sqlite 只在「細粒度事件流 + 複雜查詢」
-同時出現時才值得考慮。** 在那之前，維持現狀，讓資料自然增長。
+`~/.vibe-usage/config.json` holds the real API key (0600). Before switching, a
+`config.json.bak-local-<timestamp>` backup is written to the same directory.
+**Never commit the key to version control.**
 
 ---
 
-## 致謝
+## Future storage + query work
 
-本專案受 [vibe-usage](https://github.com/vibe-cafe/vibe-usage) 啟發——在本地重現其資料接收
-與 dashboard API，並與其 CLI（`@vibe-cafe/vibe-usage`，MIT）直接相容。
+> This section is a **decision memo**, not a backlog. Staying on JSON for now,
+> because: measured **~2.6MB / 351 days / ~3.6 buckets/day** (1274 buckets +
+> 6797 sessions), extrapolating to **~13MB over 5 years**. Full JSON load +
+> atomic write-back takes **a few ms** at this scale — far below perception
+> (sync only runs every 30 minutes). **SQLite offers no measurable advantage
+> at this size.**
+
+### Current query behavior
+
+- `GET /api/usage` calls `loadData()` (`readFileSync` + `JSON.parse` of the
+  **whole file**); buckets are filtered server-side by `days/from/to`, but
+  **sessions are returned in full** and filtered client-side by the dashboard
+  (for the Active / duration / message cards).
+- At this data size, full-file parse + client-side filter are both
+  imperceptible; "sessions not filtered server-side" **is not a bug**.
+
+### When to optimize
+
+Only enter optimization when one of these real pain points appears:
+
+- `data.json` makes `loadData()` parse/serialize perceptibly slow (e.g. > 100ms, roughly **~100+MB**);
+- dashboard views get visibly laggy from the full-session payload;
+- multi-user or custom cross-time aggregation queries appear;
+- finer-grained raw event streams need keeping (10–100× larger than buckets/sessions).
+
+### Trade-offs between the two routes
+
+| Route | Approach | Pros | Cost |
+|-------|----------|------|------|
+| **A. JSON sharding** | Split by time into smaller files (e.g. `data-2026-06.json`); queries parse only the needed months | Keeps **zero-dependency**; format stays CLI/app-compatible (full read-back, parse only the queried months); lives inside `store.js`, small blast radius | Needs shard write/read logic and multi-file management |
+| **B. SQLite** | True partial reads via `WHERE bucketStart BETWEEN ...` | Native time-range queries, indexes, partial reads | Breaks zero-dependency; needs a native module (better-sqlite3) or Node 26+ built-in `node:sqlite` (conflicts with `engines: >=20`); storage format must align with the CLI/app; one-time data migration |
+
+If that day comes, **prefer route A (JSON sharding)**: it fits this repo's
+zero-dep / CLI-app-compatible philosophy better and can be done inside the
+store layer without touching the API. **SQLite is only worth considering when
+"fine-grained event streams + complex queries" arrive together.** Until then,
+keep the status quo and let the data grow naturally.
+
+---
+
+## Acknowledgements
+
+Inspired by [vibe-usage](https://github.com/vibe-cafe/vibe-usage) — this
+project reimplements its ingest and dashboard API locally, and is directly
+compatible with its CLI (`@vibe-cafe/vibe-usage`, MIT).
 
 ## License
 
