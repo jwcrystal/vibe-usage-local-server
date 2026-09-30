@@ -65,6 +65,19 @@ test('prices: known model computes cost', () => {
   assert.equal(cost, 3.0 + 15.0);
 });
 
+test('prices: cache write priced via cacheWriteMtok (Anthropic 1.25x input)', () => {
+  const prices = loadPrices();
+  const cost = estimateCost({ model: 'claude-sonnet-4-5-20250929', inputTokens: 1_000_000, outputTokens: 0, cachedInputTokens: 0, reasoningOutputTokens: 0, cacheCreation5mTokens: 1_000_000 }, prices);
+  assert.equal(cost, 3.0 + 3.75);
+});
+
+test('prices: cache write ignored when the model has no cacheWriteMtok', () => {
+  const prices = loadPrices();
+  const glm = Object.keys(prices.models).find(k => /GLM-5\.3$/.test(k)) || Object.keys(prices.models).find(k => k.includes('GLM'));
+  const cost = estimateCost({ model: glm, inputTokens: 1_000_000, outputTokens: 0, cachedInputTokens: 0, reasoningOutputTokens: 0, cacheCreation5mTokens: 5_000_000 }, prices);
+  assert.equal(cost, prices.models[glm].input);
+});
+
 test('prices: unmatched model returns null (nil)', () => {
   const prices = loadPrices();
   const cost = estimateCost({ model: 'totally-unknown-model', inputTokens: 1, outputTokens: 1 }, prices);

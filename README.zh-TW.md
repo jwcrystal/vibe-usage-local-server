@@ -138,7 +138,7 @@ npx @vibe-cafe/vibe-usage sync
 
 伺服器在 **`http://127.0.0.1:3456/`**（或 `/usage`）提供一個**零依賴、單檔**的深色 dashboard：
 
-- **10 張 KPI 卡**（費用 / 輸入 / 輸出 / 快取 token、活躍 / 總時長、會話數、總 / 用戶訊息數），各帶**與前一等長時段相比的 % 變化**
+- **11 張 KPI 卡**（費用 / 總 / 輸入 / 輸出 / 快取讀 / 快取寫 token、活躍 / 總時長、會話數、總 / 用戶訊息數），各帶**與前一等長時段相比的 % 變化**
 - **用量趨勢**：依選定時間範圍自動切換每小時 / 每日粒度的堆疊 token 圖（輸出 / 輸入 / 快取），並可切換 費用 / 輸出 / 輸入 / 快取 指標
 - **分時活躍熱力圖**（7×24）
 - **分布圓環圖**：模型 / 工具 / 項目 / 終端（Token / 費用 切換）
@@ -219,8 +219,9 @@ override 價格表依**優先序**找，第一個命中的生效：
 
 ### 欄位說明
 
-- `input` / `output` / `cacheReadMtok` = 每 **100 萬** token 的**美元**計價，皆可省略（省略視為 0）。
-- 成本公式（`prices.js`）：`input×inRate + (output + reasoningOutput)×outRate + cachedInput×cacheReadRate`。
+- `input` / `output` / `cacheReadMtok` / `cacheWriteMtok` = 每 **100 萬** token 的**美元**計價，皆可省略（省略視為 0）。
+- 成本公式（`prices.js`）：`input×inRate + (output + reasoningOutput)×outRate + cachedInput×cacheReadRate + cacheCreation5m×cacheWriteRate`。
+- `cacheWriteMtok` 計**快取寫入**（`cacheCreation5mTokens`，CLI 的 claude-code / opencode / codearts / droid parser 皆會上傳）。Claude 系列已填官方 5m 費率（1.25× input）；其他家預設 0，待逐一查證計費後補上。
 - `vendor` / `source` 僅供文件說明，**不參與計費計算**。
 - 價格表中**不存在**的 model → `estimatedCost` 為 `null`（與上游「未匹配 model 得出 nil」一致）。
 - 計價來源：`official` = 已對照 provider 公布價格驗證（Anthropic、OpenAI、Google Gemini、

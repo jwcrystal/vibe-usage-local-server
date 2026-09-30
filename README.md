@@ -146,7 +146,7 @@ npx @vibe-cafe/vibe-usage sync
 The server serves a **zero-dependency, single-file** dark dashboard at
 **`http://127.0.0.1:3456/`** (or `/usage`):
 
-- **10 KPI cards** (cost / input / output / cache tokens, active / total duration, session count, total / user messages), each with **% change vs the previous equal-length period**
+- **11 KPI cards** (cost / total / input / output / cache-read / cache-write tokens, active / total duration, session count, total / user messages), each with **% change vs the previous equal-length period**
 - **Usage trends**: stacked token chart (output / input / cache) that auto-switches hourly/daily granularity by range, switchable between cost / output / input / cache
 - **Activity heatmap** (7×24)
 - **Distribution donuts**: model / tool / project / terminal (token / cost toggle)
@@ -241,8 +241,9 @@ invalid (no `models` object), it falls back to the **embedded default table**
 
 ### Field reference
 
-- `input` / `output` / `cacheReadMtok` = USD per **1 million** tokens; all optional (missing = 0).
-- Cost formula (`prices.js`): `input×inRate + (output + reasoningOutput)×outRate + cachedInput×cacheReadRate`.
+- `input` / `output` / `cacheReadMtok` / `cacheWriteMtok` = USD per **1 million** tokens; all optional (missing = 0).
+- Cost formula (`prices.js`): `input×inRate + (output + reasoningOutput)×outRate + cachedInput×cacheReadRate + cacheCreation5m×cacheWriteRate`.
+- `cacheWriteMtok` prices cache **writes** (`cacheCreation5mTokens`, uploaded by the CLI's claude-code / opencode / codearts / droid parsers). Claude models are filled in at the official 5m rate (1.25× input); other vendors default to 0 until their cache-write billing is verified.
 - `vendor` / `source` are documentation-only, **not used in cost math**.
 - Models **absent** from the table → `estimatedCost` is `null` (matches upstream's "unmatched model yields nil").
 - Price sources: `official` = verified against the provider's published prices (Anthropic, OpenAI, Google Gemini, Fireworks, DeepInfra, DeepSeek, Kimi, MiniMax); `openrouter` = taken from OpenRouter's `/api/v1/models`, not yet vendor-verified.
