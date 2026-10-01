@@ -204,7 +204,8 @@ POST /api/usage/ingest -> 200                (app-driven CLI sync)
 the exact `model` string the CLI emits (the string already includes the
 provider, e.g. `accounts/fireworks/models/glm-5p2`, `zai-org/GLM-5.2`).
 **Change the table and every existing record's cost updates instantly.** The
-built-in table currently covers **103 models**.
+built-in table covers the providers these tools emit, plus source-scoped price
+tables for individual providers (see below).
 
 ### Where does prices.json go?
 
@@ -238,6 +239,37 @@ invalid (no `models` object), it falls back to the **embedded default table**
   }
 }
 ```
+
+### Source-scoped prices (`sources`)
+
+The same `model` string can arrive from different CLIs. Command Code serves a
+set of models from its own catalog, and a few of those ids collide with another
+vendor's id at a different price (`gpt-5.6-sol` 5/30 on Command Code vs 4/20
+elsewhere; `gpt-5.3-codex` 2/8 vs 1.75/14). Putting either price in `models`
+misprices the other source.
+
+`prices.json` accepts an optional **`sources`** block:
+`sources.<source>.models` takes precedence over `models` for buckets from that
+`source`, while every other source keeps the model-keyed lookup. The built-in
+table ships **`sources.commandcode.models`** (the Command Code catalog).
+
+```jsonc
+{
+  "models": {
+    "gpt-5.6-sol": { "input": 4, "output": 20, "cacheReadMtok": 0.4, "vendor": "openai", "source": "official" }
+  },
+  "sources": {
+    "commandcode": {
+      "models": {
+        "gpt-5.6-sol": { "input": 5, "output": 30, "cacheReadMtok": 0.5, "cacheWriteMtok": 6.25, "vendor": "openai", "source": "command-code-catalog" }
+      }
+    }
+  }
+}
+```
+
+> A data-dir override that does not define `sources` still gets the built-in
+> `sources`; one that defines its own takes over.
 
 ### Field reference
 

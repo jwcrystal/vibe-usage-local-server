@@ -184,7 +184,7 @@ POST /api/usage/ingest -> 200                (app-driven CLI sync)
 
 `estimatedCost` 在**讀取時**依價格表即時計算，以 CLI 輸出的**確切 `model` 字串**為鍵（該字串已含 provider，
 如 `accounts/fireworks/models/glm-5p2`、`zai-org/GLM-5.2`）。**改價格表，所有既有資料的費用立刻更新。**
-內建價格表目前涵蓋 **103 個 model**。
+內建價格表涵蓋本機各工具會用到的供應商，並附不同供應商的來源專屬價表（見下節）。
 
 ### prices.json 要放在哪？
 
@@ -216,6 +216,33 @@ override 價格表依**優先序**找，第一個命中的生效：
   }
 }
 ```
+
+### 來源專屬價格表（`sources`）
+
+同一條 `model` 字串可能來自不同 CLI。Command Code 以自家目錄價供應一批 model，其中幾個 id
+與其他供應商同名卻不同價（`gpt-5.6-sol` 目錄 5/30、其他來源 4/20；`gpt-5.3-codex` 目錄 2/8、
+其他來源 1.75/14）。這種價塞進 `models` 只會顧此失彼。
+
+`prices.json` 可用選配的 **`sources`** 區塊：`sources.<source>.models` 對該 `source` 的 bucket
+優先於 `models`，其餘來源照舊。內建表已附 **`sources.commandcode.models`**（Command Code 目錄）。
+
+```jsonc
+{
+  "models": {
+    "gpt-5.6-sol": { "input": 4, "output": 20, "cacheReadMtok": 0.4, "vendor": "openai", "source": "official" }
+  },
+  "sources": {
+    "commandcode": {
+      "models": {
+        "gpt-5.6-sol": { "input": 5, "output": 30, "cacheReadMtok": 0.5, "cacheWriteMtok": 6.25, "vendor": "openai", "source": "command-code-catalog" }
+      }
+    }
+  }
+}
+```
+
+> 資料目錄的 override 若未定義 `sources`，內建表的 `sources` 仍會套用；override 自己定義了
+> `sources` 則以它為準。
 
 ### 欄位說明
 
