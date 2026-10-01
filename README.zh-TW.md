@@ -237,6 +237,19 @@ override 價格表依**優先序**找，第一個命中的生效：
   （eg. `VIBE_USAGE_SERVER_DIR=/Volumes/Data/vibe-usage` → `data.json` 與 `prices.json` 都在該目錄）。
 - **Buckets**：以 `source|model|project|hostname|bucketStart` 去重；較大的既有快照勝出（「保護」，與上游一致）。
 - **Sessions**：以 `source|sessionHash` 去重。
+
+### Bucket 欄位對照（快取讀／寫）
+
+內部欄位名是 **wire 協議 + 磁碟格式**（CLI parser 上傳契約、既有 `data.json`、上游相容性），為歷史相容保留——未來若上游協議改名或拆分 TTL 維度，依下表遷移：
+
+| 概念 | 內部欄位 | UI 標籤 | 匯出 CSV | 供應商術語 |
+|---|---|---|---|---|
+| 快取**讀** | `cachedInputTokens` | 緩存讀 | `cache_read_tokens` | Anthropic `cache_read_input_tokens`；OpenAI `cached_tokens` |
+| 快取**寫** | `cacheCreation5mTokens` | 緩存寫 | `cache_write_tokens` | Anthropic `cache_creation_input_tokens` |
+
+注意：
+- `cacheCreation5mTokens` 的 `5m` 為 Anthropic 命名遺留；實際收各家「寫入總量」（OpenCode store 不分 TTL，一律進此欄）。Anthropic 的 1h TTL 寫入目前**無法**表達。
+- 直連 OpenAI 的 usage **不回報**快取寫入（implicit caching 只回報讀取命中）——此欄為 0 屬正常，非工具漏接；經 gateway 串接（會回報 write 的平台）才會有值。
 - 寫入採原子寫入（寫臨時檔再 rename）。
 - **備份與復原**：每次啟動首次讀取時，把健康的 `data.json` 快照一份成 `data.json.bak`；若 `data.json` 損毀，自動改讀 `.bak`，並把壞檔保留為 `data.json.corrupt` 供人工檢查。
 

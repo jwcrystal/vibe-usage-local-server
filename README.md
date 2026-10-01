@@ -260,6 +260,28 @@ invalid (no `models` object), it falls back to the **embedded default table**
 - **Buckets**: deduped by `source|model|project|hostname|bucketStart`; the
   larger existing snapshot wins ("protection", matching upstream).
 - **Sessions**: deduped by `source|sessionHash`.
+
+### Bucket field mapping (cache read/write)
+
+The internal field names are the **wire protocol + on-disk format** (the CLI
+parser upload contract, existing `data.json`, upstream compatibility) and are
+kept for historical compatibility — if the upstream protocol ever renames
+them or splits out a TTL dimension, migrate against this table:
+
+| Concept | Internal field | UI label | CSV export | Provider terminology |
+|---|---|---|---|---|
+| Cache **read** | `cachedInputTokens` | 緩存讀 | `cache_read_tokens` | Anthropic `cache_read_input_tokens`; OpenAI `cached_tokens` |
+| Cache **write** | `cacheCreation5mTokens` | 緩存寫 | `cache_write_tokens` | Anthropic `cache_creation_input_tokens` |
+
+Notes:
+- The `5m` in `cacheCreation5mTokens` is Anthropic naming legacy; the field
+  actually holds each provider's **total cache write** (OpenCode's store has
+  no per-TTL breakdown and routes everything here). Anthropic 1h-TTL writes
+  currently **cannot** be represented.
+- Direct OpenAI API usage does **not** report cache writes (implicit caching
+  reports read hits only) — a zero here is expected, not a tooling gap;
+  gateway-fronted setups (platforms that report write) are where nonzero
+  values come from.
 - Writes are atomic (write to a temp file, then rename).
 - **Backup & recovery**: on the first read of each run, a healthy `data.json`
   is snapshotted to `data.json.bak`; if `data.json` is corrupt, the server
