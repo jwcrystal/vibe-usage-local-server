@@ -35,3 +35,4 @@ build/
 
 # --- OpenCode session state ---
 .opencode/
+.openchamber/

@@ -150,7 +150,7 @@ The server serves a **zero-dependency, single-file** dark dashboard at
 - **Usage trends**: stacked token chart (output / input / cache) that auto-switches hourly/daily granularity by range, switchable between cost / output / input / cache
 - **Activity heatmap** (7×24)
 - **Distribution donuts**: model / tool / project / terminal (token / cost toggle)
-- **Detail table**: sortable, terminal column masked by default with a one-click reveal
+- **Detail table**: sortable, terminal column masked by default with a one-click reveal; the header's **export menu** offers a **detail CSV** (raw values, UTF-8 BOM, spreadsheet formula-injection guard, terminal column follows the mask toggle) or a **single-page HTML report** (KPI overview + model/tool/project breakdown tables, self-contained and print-to-PDF ready) — both respect the current range, filters, and sort
 - **Time ranges**: today / 24H / 7D / 30D / 90D / custom — each re-queries `GET /api/usage`
 - **Dimension filters**: tool / model / project / terminal
 
