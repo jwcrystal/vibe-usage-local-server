@@ -193,3 +193,15 @@ test('store: load creates .bak snapshot; corrupt main recovers from .bak', async
   assert.ok(existsSync(join(dir, 'data.json.corrupt')));
   assert.equal(readFileSync(join(dir, 'data.json.corrupt'), 'utf-8'), '{corrupt');
 });
+
+test('prices: source-scoped table prices commandcode ids without touching other sources', () => {
+  const prices = loadPrices();
+  const cc = prices.sources.commandcode.models['gpt-5.6-sol'];
+  assert.ok(cc, 'commandcode catalog entry present');
+  const base = { model: 'gpt-5.6-sol', inputTokens: 1_000_000, outputTokens: 0, cachedInputTokens: 0, reasoningOutputTokens: 0 };
+  // Command Code resolves through its own catalog price...
+  assert.equal(estimateCost({ ...base, source: 'commandcode' }, prices), cc.input);
+  // ...while the same id from another source keeps the model-keyed vendor price.
+  assert.equal(estimateCost({ ...base, source: 'opencode' }, prices), prices.models['gpt-5.6-sol'].input);
+  assert.notEqual(cc.input, prices.models['gpt-5.6-sol'].input);
+});
