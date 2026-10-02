@@ -82,6 +82,35 @@
 
   .panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 20px; }
   .panel h2 { font-size: 13px; padding: 12px 16px; border-bottom: 1px solid var(--border); color: var(--text2); font-weight: 600; }
+  .quota-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; padding: 12px; }
+  .quota-card { min-width: 0; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; cursor: help; }
+  .quota-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .quota-glyph { width: 18px; height: 18px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+  .glyph-codex { color: #5bb8ff; background: rgba(91,184,255,.14); }
+  .glyph-commandcode { color: #c3a6ff; background: rgba(195,166,255,.14); }
+  .glyph-claude { color: #e8956b; background: rgba(232,149,107,.16); }
+  .glyph-ocgo { color: #4ade80; background: rgba(74,222,128,.14); font-size: 8px; }
+  .quota-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .quota-chip { flex-shrink: 0; color: #fbbf24; background: rgba(251,191,36,.13); border-radius: 999px; padding: 2px 8px; font-size: 10px; font-weight: 600; }
+  .quota-plan { flex-shrink: 0; margin-left: auto; background: #2f2f2f; color: #d4d4d4; border-radius: 6px; padding: 2px 8px; font-size: 10px; font-weight: 600; }
+  .quota-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text3); font-size: 10px; margin-top: 12px; }
+  .quota-meters { display: grid; gap: 12px; margin: 14px 0 0; }
+  .quota-meter { display: grid; grid-template-columns: 84px minmax(0, 1fr) 44px; gap: 10px; align-items: center; }
+  .quota-meter-labelwrap { min-width: 0; }
+  .quota-meter-label { display: block; color: var(--text2); font-size: 11px; font-weight: 600; }
+  .quota-meter-reset { display: block; color: var(--text3); font-size: 9px; margin-top: 2px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .quota-bars { min-width: 0; }
+  .quota-track { height: 6px; background: #2a2a2a; border-radius: 99px; overflow: hidden; }
+  .quota-fill { height: 100%; background: #d4d4d4; border-radius: inherit; }
+  .quota-fill.warn { background: #fbbf24; }
+  .quota-fill.full { background: #f87171; }
+  .quota-elapsed { height: 3px; margin-top: 3px; background: #2a2a2a; border-radius: 99px; overflow: hidden; }
+  .quota-elapsed i { display: block; height: 100%; background: #6b6b6b; border-radius: inherit; }
+  .quota-meter-value { text-align: right; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: #d4d4d4; }
+  .quota-meter-value.warn { color: #fbbf24; }
+  .quota-meter-value.full { color: #f87171; }
+  .quota-empty { color: var(--text3); font-size: 11px; padding: 18px 2px; }
+  .quota-stale { color: #fbbf24; }
   /* records panel header row: title + export dropdown */
   .panel-h { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); position: relative; }
   .panel-h h2 { border-bottom: none; flex: 1; }
@@ -398,7 +427,7 @@ function updateMetaOnly() {
 // NOTE: rangeMeta is excluded — rolling windows embed Date.now() and would
 // defeat the comparison. `range` (user selection) + data + prev is enough.
 function renderIfChanged() {
-  const sig = JSON.stringify([range, data.buckets, data.sessions, prev]);
+  const sig = JSON.stringify([range, data.buckets, data.sessions, data.quotas, prev]);
   if (sig === lastSig) { updateMetaOnly(); return; }
   const first = lastSig === null;
   lastSig = sig;
@@ -467,7 +496,7 @@ function render() {
   // 總時長 / 消息 cards only count sessions in this range.
   const { curMin: min, curMax: max, span } = data.rangeMeta;
   const sess = (data.sessions || []).filter((s) => sessInRange(s, min, max) && matchFilters(s));
-  if (buckets.length === 0 && sess.length === 0 && !Object.values(filters).some(Boolean)) {
+  if (buckets.length === 0 && sess.length === 0 && !(data.quotas || []).length && !Object.values(filters).some(Boolean)) {
     $('#app').innerHTML = '<div class="empty">暫無數據。先跑 sync: <code>npx @vibe-cafe/vibe-usage sync</code></div>';
     $('#meta').textContent = '';
     return;
@@ -516,8 +545,10 @@ function render() {
     ? '<div class="unpriced-banner" data-tip="' + esc('未計價模型：\n' + data.unpricedModels.join('\n')) + '">⚠ ' +
       data.unpricedModels.length + ' 個模型不在價格表，其費用未計入 — 補 prices.json 後即時生效</div>'
     : '';
+  const quotasHtml = quotaPanel(data.quotas || []);
   $('#app').innerHTML =
     unpricedHtml +
+    quotasHtml +
     filterBar(raw) +
     '<div class="cards">' + cards.map(cardHtml).join('') + '</div>' +
     '<div class="analytics-row">' + trendPanel(buckets) + heatmapPanel(buckets) + '</div>' +
@@ -528,6 +559,82 @@ function render() {
     donutCard('hostname', '按終端', buckets) +
     '</div>' +
     recordsPanel(buckets);
+}
+
+function quotaPanel(snapshots) {
+  if (!snapshots.length) return '';
+  const now = Date.now();
+  const names = {
+    codex: 'Codex', commandcode: 'CommandCode', 'claude-code': 'Claude Code',
+    'opencode-go': 'OpenCode Go',
+  };
+  const glyphs = {
+    codex: ['⬡', 'glyph-codex'],
+    commandcode: ['⌘', 'glyph-commandcode'],
+    'claude-code': ['✳', 'glyph-claude'],
+    'opencode-go': ['Go', 'glyph-ocgo'],
+  };
+  const reasons = {
+    limitReached: '本期配額已用完，等待重置',
+    noWindow: '目前沒有生效的配額窗口',
+    notEntitled: '此帳戶未訂閱',
+    sessionWithoutPlanLimits: '目前登入方式沒有訂閱配額',
+  };
+  const tier = (v) => (v >= 95 ? 'full' : v >= 80 ? 'warn' : '');
+  const relMinutes = (ms) => {
+    const m = Math.max(1, Math.floor(ms / 60000));
+    return m < 60 ? m + ' 分鐘' : Math.floor(m / 60) + ' 小時 ' + (m % 60) + ' 分';
+  };
+  const clock = (iso) => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString('zh-Hant', { hour: '2-digit', minute: '2-digit', hour12: false });
+  };
+  const cards = snapshots.slice().sort((a, b) => (names[a.id] || a.id).localeCompare(names[b.id] || b.id))
+    .map((snapshot) => {
+      const label = names[snapshot.id] || snapshot.id;
+      const glyph = glyphs[snapshot.id] || [label.slice(0, 1).toUpperCase(), ''];
+      const asOf = new Date(snapshot.dataAsOf || snapshot.fetchedAt);
+      const ageMinutes = Number.isNaN(asOf.getTime()) ? null : Math.max(0, Math.floor((now - asOf.getTime()) / 60000));
+      const stale = ageMinutes !== null && ageMinutes > 5;
+      const ageLabel = ageMinutes === null ? '時間未知' : ageMinutes < 1 ? '剛更新' : ageMinutes < 60 ? ageMinutes + ' 分鐘前' : Math.floor(ageMinutes / 60) + ' 小時前';
+      const tip = [label + (snapshot.planLabel ? ' · ' + snapshot.planLabel : '')];
+      const meters = (snapshot.meters || []).map((meter) => {
+        const value = Math.max(0, Math.min(100, Number(meter.utilization) || 0));
+        const t = tier(value);
+        const resetAt = meter.resetsAt ? new Date(meter.resetsAt).getTime() : NaN;
+        let resetNote = '';
+        let elapsedHtml = '';
+        if (!Number.isNaN(resetAt) && resetAt > now) {
+          resetNote = relMinutes(resetAt - now) + '後重置';
+          if (meter.windowSeconds > 0) {
+            const start = resetAt - meter.windowSeconds * 1000;
+            const elapsed = Math.max(0, Math.min(100, (now - start) / (meter.windowSeconds * 1000) * 100));
+            elapsedHtml = '<div class="quota-elapsed"><i style="width:' + elapsed + '%"></i></div>';
+          }
+        }
+        tip.push(meter.label + '：已用 ' + Math.round(value) + '%' + (resetAt > now ? '，' + clock(meter.resetsAt) + ' 重置' : ''));
+        return '<div class="quota-meter">' +
+          '<div class="quota-meter-labelwrap"><span class="quota-meter-label">' + esc(meter.label) + '</span>' +
+          (resetNote ? '<span class="quota-meter-reset">' + esc(resetNote) + '</span>' : '') +
+          '</div>' +
+          '<div class="quota-bars"><div class="quota-track"><div class="quota-fill ' + t + '" style="width:' + value + '%"></div></div>' + elapsedHtml + '</div>' +
+          '<span class="quota-meter-value ' + t + '">' + value.toFixed(0) + '%</span></div>';
+      }).join('');
+      const noData = snapshot.status === 'no_data' || !meters;
+      const body = noData
+        ? '<div class="quota-empty">' + esc(reasons[snapshot.emptyReason] || '尚未讀取到配額資料') + '</div>'
+        : '<div class="quota-meters">' + meters + '</div>';
+      tip.push('讀取於 ' + fmtLocalDT(snapshot.fetchedAt) + (snapshot.source ? ' · ' + snapshot.source : ''));
+      return '<article class="quota-card" data-tip="' + esc(tip.join('\n')) + '">' +
+        '<div class="quota-head"><span class="quota-glyph ' + glyph[1] + '">' + esc(glyph[0]) + '</span>' +
+        '<span class="quota-name">' + esc(label) + '</span>' +
+        (snapshot.resetCredits ? '<span class="quota-chip">重置券 ×' + Number(snapshot.resetCredits) + '</span>' : '') +
+        (snapshot.planLabel ? '<span class="quota-plan">' + esc(snapshot.planLabel) + '</span>' : '') +
+        '</div>' + body +
+        '<div class="quota-foot"><span>' + esc(snapshot.hostname || '') + '</span>' +
+        '<span class="' + (stale ? 'quota-stale' : '') + '">資料截至 ' + esc(ageLabel) + '</span></div></article>';
+    }).join('');
+  return '<section class="panel quota-panel"><div class="ph"><h2>訂閱配額</h2><span class="muted">由已啟用的 CLI quota sync 更新</span></div><div class="quota-grid">' + cards + '</div></section>';
 }
 
 function computeTotal(b) {

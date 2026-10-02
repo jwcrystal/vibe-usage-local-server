@@ -109,6 +109,50 @@ test('settings returns uploadProject boolean', async () => {
   const json = await res.json();
   assert.equal(typeof json.uploadProject, 'boolean');
   assert.equal(json.uploadProject, true);
+  assert.equal(json.quotaSnapshots, true);
+});
+
+test('quota snapshots are allowlisted, host-scoped, independent of date filters, and retained on failures', async () => {
+  const headers = { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' };
+  const snapshot = {
+    id: 'codex', status: 'ok', meters: [{ id: 'five-hour', label: '5h', utilization: 42 }],
+    fetchedAt: '2026-09-30T10:00:00.000Z', dataAsOf: '2026-09-30T10:00:00.000Z',
+    planLabel: 'Plus', source: 'live', resetCredits: 4, accountId: 'must-not-be-stored',
+  };
+  const upload = async (hostname, quotas) => fetch(`${BASE()}/api/usage/ingest`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ buckets: [], client: { hostname }, quotas }),
+  });
+
+  await upload('quota-host-a', [snapshot, {
+    id: 'commandcode', status: 'retryable_error', meters: [],
+    fetchedAt: '2026-09-30T10:01:00.000Z', dataAsOf: '2026-09-30T10:01:00.000Z',
+  }]);
+  await upload('quota-host-b', [{ ...snapshot, meters: [{ id: 'five-hour', label: '5h', utilization: 12 }] }]);
+  await upload('quota-host-a', [{ ...snapshot, fetchedAt: '2026-09-30T10:02:00.000Z',
+    dataAsOf: '2026-09-30T09:59:00.000Z', meters: [{ id: 'five-hour', label: '5h', utilization: 99 }] }]);
+  await upload('quota-host-a', [{ ...snapshot, fetchedAt: '2026-09-30T10:03:00.000Z',
+    dataAsOf: '2026-09-30T10:03:00.000Z', resetCredits: 2 }]);
+  // A bad resetCredits poisons the whole snapshot: dropped, never partially
+  // applied over the stored success.
+  await upload('quota-host-a', [{ ...snapshot, fetchedAt: '2026-09-30T10:04:00.000Z',
+    dataAsOf: '2026-09-30T10:04:00.000Z', resetCredits: 'many' }]);
+
+  const response = await fetch(`${BASE()}/api/usage?days=1`, { headers });
+  const data = await response.json();
+  assert.equal(data.quotas.length, 2);
+  const hostA = data.quotas.find(item => item.hostname === 'quota-host-a');
+  assert.equal(hostA.meters[0].utilization, 42);
+  assert.equal(hostA.resetCredits, 2);
+  assert.equal('accountId' in hostA, false);
+  assert.equal(data.quotas.some(item => item.id === 'commandcode'), false);
+
+  const deleted = await fetch(`${BASE()}/api/usage/ingest?hostname=quota-host-a`, {
+    method: 'DELETE', headers,
+  });
+  assert.equal(deleted.status, 200);
+  const afterDelete = await (await fetch(`${BASE()}/api/usage`, { headers })).json();
+  assert.deepEqual(afterDelete.quotas.map(item => item.hostname), ['quota-host-b']);
 });
 
 test('ingest sets estimatedCost on known model, null on unknown', async () => {
@@ -150,13 +194,15 @@ test('usage returns sorted unpricedModels for models missing from price table', 
 });
 
 test('assertSafeBind: off-loopback binding requires an explicit key', async () => {
-  const { assertSafeBind } = await import('../src/server.js');
+  const { assertSafeBind, supportsQuotaSnapshots } = await import('../src/server.js');
   assert.doesNotThrow(() => assertSafeBind('127.0.0.1', false));
   assert.doesNotThrow(() => assertSafeBind('localhost', false));
   assert.doesNotThrow(() => assertSafeBind('::1', false));
   assert.doesNotThrow(() => assertSafeBind('0.0.0.0', true));
   assert.throws(() => assertSafeBind('0.0.0.0', false));
   assert.throws(() => assertSafeBind('192.168.1.5', false));
+  for (const host of ['127.0.0.1', 'localhost', '::1']) assert.equal(supportsQuotaSnapshots(host), true);
+  for (const host of ['0.0.0.0', '192.168.1.5']) assert.equal(supportsQuotaSnapshots(host), false);
 });
 
 test('delete all clears data', async () => {
