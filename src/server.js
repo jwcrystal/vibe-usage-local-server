@@ -53,6 +53,14 @@ function sanitizeQuotaSnapshot(raw) {
         || meter.windowSeconds <= 0 || meter.windowSeconds > 10 * 365 * 24 * 3600) return null;
       normalized.windowSeconds = meter.windowSeconds;
     }
+    if (meter.amountUsed !== undefined || meter.amountLimit !== undefined) {
+      if (typeof meter.amountUsed !== 'number' || !Number.isFinite(meter.amountUsed)
+        || meter.amountUsed < 0 || meter.amountUsed > 1e9
+        || typeof meter.amountLimit !== 'number' || !Number.isFinite(meter.amountLimit)
+        || meter.amountLimit <= 0 || meter.amountLimit > 1e9) return null;
+      normalized.amountUsed = meter.amountUsed;
+      normalized.amountLimit = meter.amountLimit;
+    }
     meters.push(normalized);
   }
   const snapshot = {
@@ -164,6 +172,29 @@ function serveDashboard(req, res) {
     'Cache-Control': 'no-store',
   });
   res.end(buf);
+}
+
+// Static product icons for the quota card, vendored from the Mac app's
+// Resources into src/ui/icons/. Strict filename whitelist — no traversal,
+// no directory listing.
+const ICON_DIR = join(__dirname, 'ui', 'icons');
+const ICON_TYPES = { '.png': 'image/png', '.svg': 'image/svg+xml' };
+function serveUiAsset(res, name) {
+  if (!/^[a-z0-9-]+(@2x)?\.(png|svg)$/.test(name)) {
+    return sendJson(res, 404, { error: 'not_found' });
+  }
+  let body;
+  try {
+    body = readFileSync(join(ICON_DIR, name));
+  } catch {
+    return sendJson(res, 404, { error: 'not_found' });
+  }
+  res.writeHead(200, {
+    'Content-Type': ICON_TYPES[name.slice(name.lastIndexOf('.'))],
+    'Content-Length': body.length,
+    'Cache-Control': 'public, max-age=604800',
+  });
+  res.end(body);
 }
 
 // Parse bucketStart into a Date. Accepts full ISO (with/without fractional
@@ -336,6 +367,9 @@ const server = http.createServer((req, res) => {
     // Local dashboard at / and /usage (GET only). No auth — localhost-only.
     if (req.method === 'GET' && (path === '' || path === '/' || path === '/usage' || path === '/index.html')) {
       return serveDashboard(req, res);
+    }
+    if (req.method === 'GET' && path.startsWith('/ui-assets/')) {
+      return serveUiAsset(res, path.slice('/ui-assets/'.length));
     }
     sendJson(res, 404, { error: 'not_found' });
     return;

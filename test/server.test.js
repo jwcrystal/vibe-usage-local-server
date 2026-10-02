@@ -115,7 +115,8 @@ test('settings returns uploadProject boolean', async () => {
 test('quota snapshots are allowlisted, host-scoped, independent of date filters, and retained on failures', async () => {
   const headers = { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' };
   const snapshot = {
-    id: 'codex', status: 'ok', meters: [{ id: 'five-hour', label: '5h', utilization: 42 }],
+    id: 'codex', status: 'ok', meters: [{ id: 'five-hour', label: '5h', utilization: 42,
+      amountUsed: 24.41, amountLimit: 70 }],
     fetchedAt: '2026-09-30T10:00:00.000Z', dataAsOf: '2026-09-30T10:00:00.000Z',
     planLabel: 'Plus', source: 'live', resetCredits: 4, accountId: 'must-not-be-stored',
   };
@@ -137,6 +138,10 @@ test('quota snapshots are allowlisted, host-scoped, independent of date filters,
   // applied over the stored success.
   await upload('quota-host-a', [{ ...snapshot, fetchedAt: '2026-09-30T10:04:00.000Z',
     dataAsOf: '2026-09-30T10:04:00.000Z', resetCredits: 'many' }]);
+  // So does a broken meter amount pair.
+  await upload('quota-host-a', [{ ...snapshot, fetchedAt: '2026-09-30T10:05:00.000Z',
+    dataAsOf: '2026-09-30T10:05:00.000Z',
+    meters: [{ id: 'five-hour', label: '5h', utilization: 42, amountUsed: -1, amountLimit: 70 }] }]);
 
   const response = await fetch(`${BASE()}/api/usage?days=1`, { headers });
   const data = await response.json();
@@ -144,6 +149,8 @@ test('quota snapshots are allowlisted, host-scoped, independent of date filters,
   const hostA = data.quotas.find(item => item.hostname === 'quota-host-a');
   assert.equal(hostA.meters[0].utilization, 42);
   assert.equal(hostA.resetCredits, 2);
+  assert.equal(hostA.meters[0].amountUsed, 24.41);
+  assert.equal(hostA.meters[0].amountLimit, 70);
   assert.equal('accountId' in hostA, false);
   assert.equal(data.quotas.some(item => item.id === 'commandcode'), false);
 
@@ -191,6 +198,19 @@ test('usage returns sorted unpricedModels for models missing from price table', 
   assert.ok(json.unpricedModels.indexOf('aa-unknown-model') < json.unpricedModels.indexOf('zz-unknown-model'));
   // Known models must not appear in the list.
   assert.equal(json.unpricedModels.includes('claude-sonnet-4-5-20250929'), false);
+});
+
+test('ui-assets serves whitelisted product icons and rejects everything else', async () => {
+  const ok = await fetch(`${BASE()}/ui-assets/codex-icon@2x.png`);
+  assert.equal(ok.status, 200);
+  assert.ok((ok.headers.get('content-type') || '').startsWith('image/png'));
+  assert.ok((await ok.arrayBuffer()).byteLength > 0);
+  const svg = await fetch(`${BASE()}/ui-assets/commandcode-icon.svg`);
+  assert.equal(svg.status, 200);
+  assert.equal(svg.headers.get('content-type'), 'image/svg+xml');
+  for (const bad of ['/ui-assets/..%2Fserver.js', '/ui-assets/nope.png', '/ui-assets/server.js']) {
+    assert.equal((await fetch(`${BASE()}${bad}`)).status, 404);
+  }
 });
 
 test('assertSafeBind: off-loopback binding requires an explicit key', async () => {
