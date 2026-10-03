@@ -182,6 +182,17 @@ test('quota snapshots are allowlisted, host-scoped, independent of date filters,
   assert.equal('emptyReason' in afterBadReason.quotas.find(item => item.hostname === 'quota-host-c'), false);
 });
 
+test('buckets keep the firstCallAt / lastCallAt pass-through', async () => {
+  await ingest([bucket({
+    bucketStart: recent(2),
+    firstCallAt: '2026-10-03T01:32:00.000Z',
+    lastCallAt: '2026-10-03T01:47:00.000Z',
+  })]);
+  const roundtrip = await (await fetch(`${BASE()}/api/usage?days=1`, { headers: { Authorization: `Bearer ${KEY}` } })).json();
+  const callRow = roundtrip.buckets.find((b) => b.firstCallAt === '2026-10-03T01:32:00.000Z');
+  assert.equal(callRow.lastCallAt, '2026-10-03T01:47:00.000Z');
+});
+
 test('ingest sets estimatedCost on known model, null on unknown', async () => {
   const tKnown = recent(90), tUnknown = recent(80);
   await ingest([
