@@ -574,6 +574,8 @@ function render() {
 function quotaPanel(snapshots, mode) {
   if (!snapshots.length) return '';
   const now = Date.now();
+  // Hostnames only earn their place when the server actually serves several.
+  const multiHost = new Set(snapshots.map((snapshot) => snapshot.hostname)).size > 1;
   const names = {
     codex: 'Codex', commandcode: 'CommandCode', 'claude-code': 'Claude Code',
     'opencode-go': 'OpenCode Go',
@@ -601,13 +603,28 @@ function quotaPanel(snapshots, mode) {
   // Urgency always follows the USED amount, whichever side of the bar is shown.
   const tier = (used) => (used >= 95 ? 'full' : used >= 80 ? 'warn' : '');
   const money2 = (v) => '$' + Number(v).toFixed(2);
-  const relMinutes = (ms) => {
+  // Human-readable relative time: days once past 24h, minutes under an hour.
+  const relTime = (ms) => {
     const m = Math.max(1, Math.floor(ms / 60000));
-    return m < 60 ? m + ' 分鐘' : Math.floor(m / 60) + ' 小時 ' + (m % 60) + ' 分';
+    if (m < 60) return m + ' 分鐘';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + ' 小時 ' + (m % 60) + ' 分';
+    return Math.floor(h / 24) + ' 天 ' + (h % 24) + ' 小時';
   };
   const clock = (iso) => {
     const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString('zh-Hant', { hour: '2-digit', minute: '2-digit', hour12: false });
+  };
+  const chipTip = (snapshot) => {
+    const dates = snapshot.resetCreditsAt || [];
+    if (!dates.length) return undefined;
+    const lines = dates.map((iso) => {
+      const d = new Date(iso);
+      return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('zh-Hant', {
+        month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+      }) + ' 到期';
+    }).filter(Boolean);
+    return lines.length ? '重置券到期日\n' + lines.join('\n') : undefined;
   };
   const cards = snapshots.slice().sort((a, b) => (names[a.id] || a.id).localeCompare(names[b.id] || b.id))
     .map((snapshot) => {
@@ -620,7 +637,7 @@ function quotaPanel(snapshots, mode) {
       const asOf = new Date(snapshot.dataAsOf || snapshot.fetchedAt);
       const ageMinutes = Number.isNaN(asOf.getTime()) ? null : Math.max(0, Math.floor((now - asOf.getTime()) / 60000));
       const stale = ageMinutes !== null && ageMinutes > 5;
-      const ageLabel = ageMinutes === null ? '時間未知' : ageMinutes < 1 ? '剛更新' : ageMinutes < 60 ? ageMinutes + ' 分鐘前' : Math.floor(ageMinutes / 60) + ' 小時前';
+      const ageLabel = ageMinutes === null ? '時間未知' : ageMinutes < 1 ? '剛更新' : ageMinutes < 60 ? ageMinutes + ' 分鐘前' : ageMinutes < 1440 ? Math.floor(ageMinutes / 60) + ' 小時前' : Math.floor(ageMinutes / 1440) + ' 天前';
       const tip = [label + (snapshot.planLabel ? ' · ' + snapshot.planLabel : '')];
       const meters = (snapshot.meters || []).map((meter) => {
         const used = Math.max(0, Math.min(100, Number(meter.utilization) || 0));
@@ -630,7 +647,7 @@ function quotaPanel(snapshots, mode) {
         let resetNote = '';
         let elapsedHtml = '';
         if (!Number.isNaN(resetAt) && resetAt > now) {
-          resetNote = relMinutes(resetAt - now) + '後重置';
+          resetNote = relTime(resetAt - now) + '後重置';
           if (meter.windowSeconds > 0) {
             const start = resetAt - meter.windowSeconds * 1000;
             const elapsed = Math.max(0, Math.min(100, (now - start) / (meter.windowSeconds * 1000) * 100));
@@ -655,28 +672,36 @@ function quotaPanel(snapshots, mode) {
           : amountMeter.amountUsed;
         amountHtml = '<span class="quota-amount">' + esc(money2(Math.max(0, shownUsed))) + ' of ' + esc(money2(amountMeter.amountLimit)) + '</span>';
       }
+      const balanceHtml = Number.isFinite(snapshot.creditBalance)
+        ? '<span class="quota-amount">餘額 ' + esc(money2(snapshot.creditBalance)) + '</span>'
+        : '';
       const noData = snapshot.status === 'no_data' || !meters;
       const body = noData
         ? '<div class="quota-empty">' + esc(reasons[snapshot.emptyReason] || '尚未讀取到配額資料') + '</div>'
         : '<div class="quota-meters">' + meters + '</div>';
       tip.push('讀取於 ' + fmtLocalDT(snapshot.fetchedAt) + (snapshot.source ? ' · ' + snapshot.source : ''));
-      return '<article class="quota-card" data-tip="' + esc(tip.join('\n')) + '">' +
+      const creditTip = chipTip(snapshot);
+      const cardOpen = '<article class="quota-card" data-tip="' + esc(tip.join('\n')) + '">' +
         '<div class="quota-head">' + iconHtml +
         '<span class="quota-name">' + esc(label) + '</span>' +
-        (snapshot.resetCredits ? '<span class="quota-chip">重置券 ×' + Number(snapshot.resetCredits) + '</span>' : '') +
-        '<span class="quota-right">' + amountHtml +
+        (snapshot.resetCredits ? '<span class="quota-chip"' + (creditTip ? ' data-tip="' + esc(creditTip) + '"' : '') + '>重置券 ×' + Number(snapshot.resetCredits) + '</span>' : '') +
+        '<span class="quota-right">' + balanceHtml + amountHtml +
         (snapshot.planLabel ? '<span class="quota-plan">' + esc(snapshot.planLabel) + '</span>' : '') +
         '</span>' +
-        '</div>' + body +
-        '<div class="quota-foot"><span>' + esc(snapshot.hostname || '') + '</span>' +
-        '<span class="' + (stale ? 'quota-stale' : '') + '">資料截至 ' + esc(ageLabel) + '</span></div></article>';
+        '</div>' + body;
+      // The footer only speaks when it has something to say: hostnames matter
+      // in multi-host setups, freshness only once the data is stale.
+      const footParts = [];
+      if (multiHost && snapshot.hostname) footParts.push('<span>' + esc(snapshot.hostname) + '</span>');
+      if (stale) footParts.push('<span class="quota-stale">資料截至 ' + esc(ageLabel) + '</span>');
+      return cardOpen + (footParts.length ? '<div class="quota-foot">' + footParts.join('') + '</div>' : '') + '</article>';
     }).join('');
   return '<section class="panel quota-panel"><div class="ph"><h2>訂閱配額</h2>' +
     '<span class="quota-mode">' +
     '<button data-qmode="used"' + (mode === 'used' ? ' class="active"' : '') + '>已用</button>' +
     '<button data-qmode="remaining"' + (mode === 'remaining' ? ' class="active"' : '') + '>剩餘</button>' +
     '</span>' +
-    '<span class="muted">由已啟用的 CLI quota sync 更新</span></div><div class="quota-grid">' + cards + '</div></section>';
+    '</div><div class="quota-grid">' + cards + '</div></section>';
 }
 
 function computeTotal(b) {

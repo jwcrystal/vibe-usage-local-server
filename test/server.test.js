@@ -118,7 +118,9 @@ test('quota snapshots are allowlisted, host-scoped, independent of date filters,
     id: 'codex', status: 'ok', meters: [{ id: 'five-hour', label: '5h', utilization: 42,
       amountUsed: 24.41, amountLimit: 70 }],
     fetchedAt: '2026-09-30T10:00:00.000Z', dataAsOf: '2026-09-30T10:00:00.000Z',
-    planLabel: 'Plus', source: 'live', resetCredits: 4, accountId: 'must-not-be-stored',
+    planLabel: 'Plus', source: 'live', resetCredits: 4,
+    resetCreditsAt: ['2026-10-04T01:25:57.655Z', '2026-10-22T18:59:11.966Z'],
+    creditBalance: 12.5, accountId: 'must-not-be-stored',
   };
   const upload = async (hostname, quotas) => fetch(`${BASE()}/api/usage/ingest`, {
     method: 'POST', headers,
@@ -138,9 +140,9 @@ test('quota snapshots are allowlisted, host-scoped, independent of date filters,
   // applied over the stored success.
   await upload('quota-host-a', [{ ...snapshot, fetchedAt: '2026-09-30T10:04:00.000Z',
     dataAsOf: '2026-09-30T10:04:00.000Z', resetCredits: 'many' }]);
-  // So does a broken meter amount pair.
+  // So does a broken meter amount pair — or a broken credit-date list.
   await upload('quota-host-a', [{ ...snapshot, fetchedAt: '2026-09-30T10:05:00.000Z',
-    dataAsOf: '2026-09-30T10:05:00.000Z',
+    dataAsOf: '2026-09-30T10:05:00.000Z', resetCreditsAt: 'nope', creditBalance: 'twelve',
     meters: [{ id: 'five-hour', label: '5h', utilization: 42, amountUsed: -1, amountLimit: 70 }] }]);
 
   const response = await fetch(`${BASE()}/api/usage?days=1`, { headers });
@@ -149,6 +151,8 @@ test('quota snapshots are allowlisted, host-scoped, independent of date filters,
   const hostA = data.quotas.find(item => item.hostname === 'quota-host-a');
   assert.equal(hostA.meters[0].utilization, 42);
   assert.equal(hostA.resetCredits, 2);
+  assert.deepEqual(hostA.resetCreditsAt, ['2026-10-04T01:25:57.655Z', '2026-10-22T18:59:11.966Z']);
+  assert.equal(hostA.creditBalance, 12.5);
   assert.equal(hostA.meters[0].amountUsed, 24.41);
   assert.equal(hostA.meters[0].amountLimit, 70);
   assert.equal('accountId' in hostA, false);

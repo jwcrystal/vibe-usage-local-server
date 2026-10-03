@@ -74,6 +74,16 @@ function sanitizeQuotaSnapshot(raw) {
     if (!Number.isInteger(raw.resetCredits) || raw.resetCredits < 0 || raw.resetCredits > 1_000_000) return null;
     snapshot.resetCredits = raw.resetCredits;
   }
+  if (raw.resetCreditsAt !== undefined && raw.resetCreditsAt !== null) {
+    if (!Array.isArray(raw.resetCreditsAt) || raw.resetCreditsAt.length > 8
+      || raw.resetCreditsAt.some((item) => typeof item !== 'string' || validDate(item) === null)) return null;
+    snapshot.resetCreditsAt = raw.resetCreditsAt.map(validDate);
+  }
+  if (raw.creditBalance !== undefined && raw.creditBalance !== null) {
+    if (typeof raw.creditBalance !== 'number' || !Number.isFinite(raw.creditBalance)
+      || raw.creditBalance < 0 || raw.creditBalance > 1e9) return null;
+    snapshot.creditBalance = raw.creditBalance;
+  }
   if (typeof raw.planLabel === 'string' && raw.planLabel.trim() && raw.planLabel.length <= 80) {
     snapshot.planLabel = raw.planLabel.trim();
   }
