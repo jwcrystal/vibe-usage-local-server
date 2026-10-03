@@ -676,7 +676,12 @@ function quotaPanel(snapshots, mode, manage) {
         let resetNote = '';
         let elapsedHtml = '';
         if (!Number.isNaN(resetAt) && resetAt > now) {
-          resetNote = relTime(resetAt - now) + '後重置';
+          // Countdown for near resets (actionable), a date for distant ones
+          // ("30 天 3 小時後" is unreadable); the exact clock time stays in
+          // the card tooltip either way.
+          resetNote = (resetAt - now <= 48 * 3600000
+            ? relTime(resetAt - now)
+            : new Date(resetAt).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' })) + '後重置';
           if (meter.windowSeconds > 0) {
             const start = resetAt - meter.windowSeconds * 1000;
             const elapsed = Math.max(0, Math.min(100, (now - start) / (meter.windowSeconds * 1000) * 100));

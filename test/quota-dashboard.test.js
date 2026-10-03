@@ -26,6 +26,14 @@ test('quota meters group mode-labelled percentages, bars and reset countdowns', 
   assert.ok(remaining.indexOf('quota-meter-value') < remaining.indexOf('quota-bars'));
   assert.ok(remaining.indexOf('quota-bars') < remaining.indexOf('quota-meter-reset'));
   assert.match(render([snapshot()], 'used', ['codex']), /已用 16%/);
+  // Near resets count down; distant resets render a local date instead of
+  // an unreadable "30 天 3 小時" string.
+  const distant = render([{
+    ...snapshot(), meters: [{ id: 'monthly', label: 'Month', utilization: 10,
+      resetsAt: new Date(Date.now() + 30.2 * 86400000).toISOString() }],
+  }], 'remaining', ['codex']);
+  assert.match(distant, /\d{2}\/\d{2}後重置/);
+  assert.doesNotMatch(distant, /30 天/);
   // Definitive empty answers render their reason text, not a loading state.
   const emptyCard = render([{
     id: 'claude-code', status: 'no_data', hostname: 'test-host', meters: [],
