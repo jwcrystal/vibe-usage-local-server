@@ -8,6 +8,7 @@ import { gzipSync } from 'node:zlib';
 const KEY = 'vbu_test_local_key_12345';
 process.env.VIBE_USAGE_SERVER_KEY = KEY;
 process.env.VIBE_USAGE_SERVER_DIR = mkdtempSync(join(tmpdir(), 'vibe-usage-test-'));
+process.env.VIBE_USAGE_CONFIG_DIR = mkdtempSync(join(tmpdir(), 'vibe-usage-config-'));
 
 const { server } = await import('../src/server.js');
 const { loadPrices, estimateCost } = await import('../src/prices.js');
@@ -202,6 +203,49 @@ test('usage returns sorted unpricedModels for models missing from price table', 
   assert.ok(json.unpricedModels.indexOf('aa-unknown-model') < json.unpricedModels.indexOf('zz-unknown-model'));
   // Known models must not appear in the list.
   assert.equal(json.unpricedModels.includes('claude-sonnet-4-5-20250929'), false);
+});
+
+test('quota sync manage endpoint updates the shared CLI config', async () => {
+  const headers = { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' };
+  const configPath = join(process.env.VIBE_USAGE_CONFIG_DIR, 'config.json');
+  writeFileSync(configPath, JSON.stringify({
+    apiKey: KEY, apiUrl: 'http://127.0.0.1:3456', extraField: 'keep-me',
+  }));
+
+  // GET surfaces the current opt-in; empty to start.
+  const settings = await (await fetch(`${BASE()}/api/usage/settings`, { headers })).json();
+  assert.deepEqual(settings.quotaSyncProducts, []);
+
+  // POST persists products (deduped) plus the apiUrl binding, preserving
+  // unknown config fields, and the usage response reflects it.
+  const on = await fetch(`${BASE()}/api/usage/quota-sync`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ products: ['codex', 'codex', 'claude-code'] }),
+  });
+  assert.equal(on.status, 200);
+  assert.deepEqual((await on.json()).products, ['codex', 'claude-code']);
+  const usage = await (await fetch(`${BASE()}/api/usage`, { headers })).json();
+  assert.deepEqual(usage.quotaSync.products, ['codex', 'claude-code']);
+  const cfg = JSON.parse(readFileSync(configPath, 'utf8'));
+  assert.equal(cfg.extraField, 'keep-me');
+  assert.equal(cfg.apiKey, KEY);
+  assert.equal(cfg.quotaSyncApiUrl, 'http://127.0.0.1:3456');
+
+  // A non-loopback apiUrl would make the opt-in a silent no-op: refuse.
+  writeFileSync(configPath, JSON.stringify({ apiKey: KEY, apiUrl: 'https://vibecafe.ai' }));
+  const refused = await fetch(`${BASE()}/api/usage/quota-sync`, {
+    method: 'POST', headers, body: JSON.stringify({ products: ['codex'] }),
+  });
+  assert.equal(refused.status, 409);
+  assert.deepEqual(JSON.parse(readFileSync(configPath, 'utf8')).quotaSyncProducts, undefined);
+
+  // Unknown products are a contract error, not a partial write.
+  writeFileSync(configPath, JSON.stringify({ apiKey: KEY, apiUrl: 'http://127.0.0.1:3456' }));
+  const bad = await fetch(`${BASE()}/api/usage/quota-sync`, {
+    method: 'POST', headers, body: JSON.stringify({ products: ['nope'] }),
+  });
+  assert.equal(bad.status, 400);
+  assert.equal(JSON.parse(readFileSync(configPath, 'utf8')).quotaSyncProducts, undefined);
 });
 
 test('ui-assets serves whitelisted product icons and rejects everything else', async () => {
