@@ -138,6 +138,8 @@
   .quota-skel-bar { display: block; width: 100%; height: 6px; }
   .quota-skel-reset { width: 110px; height: 9px; }
   .quota-stale { color: #fbbf24; }
+  .sync-note { font-size: 10px; color: var(--text3); }
+  .sync-note.bad { color: #f87171; }
   /* records panel header row: title + export dropdown */
   .panel-h { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); position: relative; }
   .panel-h h2 { border-bottom: none; flex: 1; }
@@ -319,6 +321,7 @@
           <button data-range="custom">自定義</button>
         </div>
         <button id="refresh" title="立即更新資料"><span class="icon">↻</span> 更新</button>
+        <span id="syncNote" class="sync-note" aria-live="polite"></span>
       </div>
       <div class="custom" id="custom" hidden>
         <input type="date" id="cFrom">
@@ -1485,8 +1488,29 @@ syncRangeButtons();
 // in a plain browser vibeDesktop is absent and this is display-only.
 async function refreshNow() {
   const btn = document.getElementById('refresh');
+  const note = document.getElementById('syncNote');
   btn.classList.add('spinning');
-  try { if (window.vibeDesktop) await window.vibeDesktop.syncNow(); } catch { /* sync best-effort — still refresh the view */ }
+  try {
+    if (window.vibeDesktop) {
+      // Desktop: the button really syncs (bundled CLI re-reads local usage
+      // files and uploads). Surface what it did — uploaded / retained /
+      // quota lines from the CLI output — instead of leaving "records did
+      // not change" ambiguous between "nothing new" and "it failed".
+      const res = await window.vibeDesktop.syncNow();
+      const out = res && typeof res.out === 'string' ? res.out : '';
+      const clean = (l) => l.replace(/\x1b\[[0-9;]*m/g, '').trim();
+      const hit = out.split('\n').map(clean)
+        .filter((l) => /上传|已同步|保留了|订阅配额/.test(l)).pop();
+      if (res && res.ok === false) {
+        note.textContent = '同步失敗';
+        note.classList.add('bad');
+      } else {
+        note.classList.remove('bad');
+        note.textContent = hit || '已同步';
+        setTimeout(() => { note.textContent = ''; }, 8000);
+      }
+    }
+  } catch { /* sync best-effort — still refresh the view */ }
   btn.classList.remove('spinning');
   load();
 }
