@@ -20,7 +20,7 @@ export function supportsQuotaSnapshots(host = HOST) {
 }
 
 const SYNCABLE_QUOTA_IDS = new Set(['codex', 'commandcode', 'claude-code', 'opencode-go']);
-const QUOTA_EMPTY_REASONS = new Set(['limitReached', 'noWindow', 'notEntitled', 'sessionWithoutPlanLimits']);
+const QUOTA_EMPTY_REASONS = new Set(['limitReached', 'noWindow', 'notEntitled', 'sessionWithoutPlanLimits', 'notDetected', 'unauthorized']);
 
 function validDate(value) {
   if (typeof value !== 'string' || value.length > 64) return null;

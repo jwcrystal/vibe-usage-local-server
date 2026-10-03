@@ -624,6 +624,8 @@ function quotaPanel(snapshots, mode, manage) {
     noWindow: '目前沒有生效的配額窗口',
     notEntitled: '此帳戶未訂閱',
     sessionWithoutPlanLimits: '目前登入方式沒有訂閱配額',
+    notDetected: '未偵測到本機安裝或登入 · 請先配置該工具',
+    unauthorized: '登入已過期或被拒絕 · 請在該工具重新登入',
   };
   // Urgency always follows the USED amount, whichever side of the bar is shown.
   const tier = (used) => (used >= 95 ? 'full' : used >= 80 ? 'warn' : '');

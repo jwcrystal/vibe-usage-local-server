@@ -165,6 +165,21 @@ test('quota snapshots are allowlisted, host-scoped, independent of date filters,
   assert.equal(deleted.status, 200);
   const afterDelete = await (await fetch(`${BASE()}/api/usage`, { headers })).json();
   assert.deepEqual(afterDelete.quotas.map(item => item.hostname), ['quota-host-b']);
+
+  // Definitive "nothing to show" answers pass through with their reason so
+  // the dashboard can render an actionable card instead of endless loading.
+  await upload('quota-host-c', [{ id: 'claude-code', status: 'no_data', meters: [],
+    fetchedAt: '2026-09-30T10:06:00.000Z', dataAsOf: '2026-09-30T10:06:00.000Z',
+    emptyReason: 'notDetected' }]);
+  const withReason = await (await fetch(`${BASE()}/api/usage`, { headers })).json();
+  const emptyCard = withReason.quotas.find(item => item.hostname === 'quota-host-c');
+  assert.equal(emptyCard.emptyReason, 'notDetected');
+  // Unknown reasons stay dropped.
+  await upload('quota-host-c', [{ id: 'claude-code', status: 'no_data', meters: [],
+    fetchedAt: '2026-09-30T10:07:00.000Z', dataAsOf: '2026-09-30T10:07:00.000Z',
+    emptyReason: 'somethingElse' }]);
+  const afterBadReason = await (await fetch(`${BASE()}/api/usage`, { headers })).json();
+  assert.equal('emptyReason' in afterBadReason.quotas.find(item => item.hostname === 'quota-host-c'), false);
 });
 
 test('ingest sets estimatedCost on known model, null on unknown', async () => {

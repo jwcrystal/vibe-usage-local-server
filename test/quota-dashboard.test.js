@@ -26,6 +26,24 @@ test('quota meters group mode-labelled percentages, bars and reset countdowns', 
   assert.ok(remaining.indexOf('quota-meter-value') < remaining.indexOf('quota-bars'));
   assert.ok(remaining.indexOf('quota-bars') < remaining.indexOf('quota-meter-reset'));
   assert.match(render([snapshot()], 'used', ['codex']), /已用 16%/);
+  // Definitive empty answers render their reason text, not a loading state.
+  const emptyCard = render([{
+    id: 'claude-code', status: 'no_data', hostname: 'test-host', meters: [],
+    fetchedAt: new Date().toISOString(), emptyReason: 'notDetected',
+  }], 'remaining', ['claude-code']);
+  assert.match(emptyCard, /未偵測到本機安裝或登入 · 請先配置該工具/);
+  assert.doesNotMatch(emptyCard, /quota-skel/);
+  const rejected = render([{
+    id: 'codex', status: 'no_data', hostname: 'test-host', meters: [],
+    fetchedAt: new Date().toISOString(), emptyReason: 'unauthorized',
+  }], 'remaining', ['codex']);
+  assert.match(rejected, /登入已過期或被拒絕 · 請在該工具重新登入/);
+  // Unknown reason falls back to the neutral line.
+  const unknownReason = render([{
+    id: 'codex', status: 'no_data', hostname: 'test-host', meters: [],
+    fetchedAt: new Date().toISOString(), emptyReason: 'whatever',
+  }], 'remaining', ['codex']);
+  assert.match(unknownReason, /尚未讀取到配額資料/);
   // Warning colour stays tied to usage, even in remaining mode.
   assert.match(render([snapshot('codex', 95)], 'remaining', ['codex']), /quota-meter-value full">剩餘 5%/);
 });
