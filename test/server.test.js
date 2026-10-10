@@ -224,11 +224,13 @@ test('usage returns sorted unpricedModels for models missing from price table', 
   const res = await fetch(`${BASE()}/api/usage?days=30`, { headers: { Authorization: `Bearer ${KEY}` } });
   const json = await res.json();
   assert.ok(Array.isArray(json.unpricedModels));
-  assert.ok(json.unpricedModels.includes('aa-unknown-model'));
-  assert.ok(json.unpricedModels.includes('zz-unknown-model'));
-  assert.ok(json.unpricedModels.indexOf('aa-unknown-model') < json.unpricedModels.indexOf('zz-unknown-model'));
+  // Each entry is source-qualified so a miss in one source is distinguishable
+  // from the same model being priced for another (see prices.js source tables).
+  assert.ok(json.unpricedModels.includes('claude-code / aa-unknown-model'));
+  assert.ok(json.unpricedModels.includes('claude-code / zz-unknown-model'));
+  assert.ok(json.unpricedModels.indexOf('claude-code / aa-unknown-model') < json.unpricedModels.indexOf('claude-code / zz-unknown-model'));
   // Known models must not appear in the list.
-  assert.equal(json.unpricedModels.includes('claude-sonnet-4-5-20250929'), false);
+  assert.equal(json.unpricedModels.includes('claude-code / claude-sonnet-4-5-20250929'), false);
 });
 
 test('quota sync manage endpoint updates the shared CLI config', async () => {
@@ -344,4 +346,37 @@ test('prices: source-scoped table prices commandcode ids without touching other 
   // ...while the same id from another source keeps the model-keyed vendor price.
   assert.equal(estimateCost({ ...base, source: 'opencode' }, prices), prices.models['gpt-5.6-sol'].input);
   assert.notEqual(cc.input, prices.models['gpt-5.6-sol'].input);
+});
+
+test('prices: every source-scoped id is also reachable from canonical models', () => {
+  const prices = loadPrices();
+  const sourceOnly = [];
+  for (const [source, table] of Object.entries(prices.sources)) {
+    for (const id of Object.keys(table.models)) {
+      if (!(id in prices.models)) sourceOnly.push(`${source}/${id}`);
+    }
+  }
+  // A source-scoped id that canonical does not also carry is invisible to
+  // every other source. A router CLI (OpenCode) can emit an id a reseller
+  // catalog (Command Code) lists, so such an id would price to null there and
+  // silently undercount — the 2026-10 OpenCode/Command Code miss.
+  assert.deepEqual(sourceOnly, [], 'source-scoped ids must also exist in canonical models');
+});
+
+test('prices: a source-scoped entry only overrides a differing canonical price', () => {
+  const prices = loadPrices();
+  const redundant = [];
+  for (const [source, table] of Object.entries(prices.sources)) {
+    for (const [id, e] of Object.entries(table.models)) {
+      const c = prices.models[id];
+      if (c && c.input === e.input && c.output === e.output
+        && (c.cacheReadMtok || 0) === (e.cacheReadMtok || 0)
+        && (c.cacheWriteMtok || 0) === (e.cacheWriteMtok || 0)) {
+        redundant.push(`${source}/${id}`);
+      }
+    }
+  }
+  // Same id, same price belongs in canonical once; keeping it in sources too
+  // is a second place to update and invites drift.
+  assert.deepEqual(redundant, [], 'a source-scoped entry must differ from canonical');
 });

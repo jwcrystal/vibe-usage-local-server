@@ -65,8 +65,9 @@ cost = input × inRate
      + cacheCreation5m × cacheWriteRate
 ```
 
-- 兩層都查不到 → `estimatedCost = null`，該 model 會出現在 `GET /api/usage` 的
-  `unpricedModels`（讓漏收錄看得見，而不是默默低估）。
+- 兩層都查不到 → `estimatedCost = null`，該 **(source, model)** 會出現在
+  `GET /api/usage` 的 `unpricedModels`（讓漏收錄看得見，而不是默默低估）。每筆
+  以 `source / model` 標示，因為同一個 model 可能在 A 來源有價、B 來源沒有。
 
 ## 兩層心智模型
 
@@ -80,6 +81,14 @@ cost = input × inRate
 - 一般供應商／模型 → 只動 canonical `models`。
 - 「自營／轉售」且 id 會與他人撞名的 CLI → 加 `sources.<source>`。
 - 客戶端（opencode / codex / claude-code / dsh / hermes…）**不該**有 `sources` 表。
+- **canonical 是「任何 source 都查得到」的預設價**；`sources.<source>.models` 只能放
+  **真碰撞**（與 canonical 不同價）。維持兩條 invariant（`test/server.test.js` 會檢查）：
+  1. `sources.*.models` 的每個 id 都必須也存在於 canonical `models`；
+  2. `sources.*.models` 的覆寫值必須與 canonical **不同**（否則就是重複，刪掉）。
+- **路由器（opencode）**能發出別的 catalog 的 id（例：經 `opencode-cmd-provider`
+  發出 Command Code 的 `deepseek/deepseek-v4.1-flash`）。因為 bucket 只帶 `source`
+  （router 的 source 不會是 provider），那些 id 必須在 canonical 有預設價——否則在
+  `source: opencode` 下查到 `null`，靜默低估。
 
 ## 為什麼覆寫鍵是 `source`，不是 `provider`
 
@@ -103,6 +112,7 @@ cost = input × inRate
 
 ## 常見情況
 
-- `unpricedModels` 非空 → 該 model 兩層都沒收錄 → 補進對應層。
+- `unpricedModels` 非空 → 該 (source, model) 兩層都沒收錄 → 補進對應層。
 - 同一 id、不同供應商不同價 → 放 `sources`；同名同價 → 放 canonical（共用）。
+- 同 id 出現在 `sources` 又與 canonical 同價 → 重複，刪掉 `sources` 那筆。
 - override 只寫了 `models` → 來源覆寫仍生效（由內建 `sources` 補上）。

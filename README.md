@@ -53,7 +53,7 @@ app source changes required**.
 | Endpoint | Purpose | Support |
 |----------|---------|---------|
 | `POST /api/usage/ingest` | Receive buckets+sessions (gzip, Bearer auth, upsert dedup) | ✅ |
-| `GET /api/usage` | Return filtered buckets (`days`/`from`/`to`/`tz`) + `unpricedModels` (models missing from the price table) | ✅ |
+| `GET /api/usage` | Return filtered buckets (`days`/`from`/`to`/`tz`) + `unpricedModels` (`source / model` pairs missing from the price table) | ✅ |
 | `GET /api/usage/settings` | Returns `{ uploadProject: true }` (the CLI fetches it before syncing) | ✅ |
 | `DELETE /api/usage/ingest` | Reset (optional `?hostname=`) | optional |
 | `POST /api/usage/device/code` + `/poll` | Not supported — use `--manual-key` | — |

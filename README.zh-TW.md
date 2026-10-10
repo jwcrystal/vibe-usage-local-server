@@ -49,7 +49,7 @@ CLI 與 Mac App 都會從 `~/.vibe-usage/config.json`（DEBUG 版另讀 `config.
 | Endpoint | 用途 | 必備 |
 |----------|------|------|
 | `POST /api/usage/ingest` | 接收 buckets+sessions（gzip、Bearer 認證、upsert 去重） | ✅ |
-| `GET /api/usage` | 回傳過濾後的 buckets（`days`/`from`/`to`/`tz`）＋ `unpricedModels`（價格表缺的 model 清單） | ✅ |
+| `GET /api/usage` | 回傳過濾後的 buckets（`days`/`from`/`to`/`tz`）＋ `unpricedModels`（價格表缺的 `source / model` 清單） | ✅ |
 | `GET /api/usage/settings` | 回傳 `{ uploadProject: true }`（CLI 同步前會先取） | ✅ |
 | `DELETE /api/usage/ingest` | 重設（可加 `?hostname=`） | 選用 |
 | `POST /api/usage/device/code` + `/poll` | 不支援 — 請用 `--manual-key` | — |
