@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
 const html = readFileSync(new URL('../src/ui/dashboard.html', import.meta.url), 'utf8');
-const start = html.indexOf('function quotaPanel(');
+const start = html.indexOf('const loginActions =');
 const end = html.indexOf('\nfunction computeTotal(', start);
 const render = runInNewContext(html.slice(start, end) + '\nquotaPanel', {
   esc: value => String(value).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;'),
@@ -66,16 +66,16 @@ test('quota controls share a toolbar without changing selection behaviour', () =
   assert.match(multiple, /aria-busy="true"/);
   assert.match(multiple, /quota-skel quota-skel-bar/);
   assert.match(multiple, /CommandCode 已啟用 · 等待下次同步更新/);
-  // Manage rows are two-line: toggle state plus where the product stands,
-  // or how to configure it when off — a lightweight config surface.
+  // Manage rows are a pure two-line on/off switch: name (with a check when
+  // on) plus status; setup/login hints live on the quota cards, not here.
   assert.match(multiple, /quota-row-name">✓ Codex</);
   assert.match(multiple, /quota-row-sub">已啟用 · 等待同步</);
-  assert.match(multiple, /quota-row-sub">未啟用 · 需安裝 Claude Code 並以訂閱帳號登入</);
+  assert.match(multiple, /quota-row-name">Claude Code<\/span><span class="quota-row-sub">未啟用</);
   const withPlan = render([{ ...snapshot(), planLabel: 'Plus' }], 'remaining', ['codex']);
   assert.match(withPlan, /quota-row-sub">正常 · Plus</);
   const menuOff = render([], 'remaining', ['codex', 'claude-code']);
-  assert.match(menuOff, /quota-row-sub">未啟用 · 登入：CommandCode CLI</);
-  assert.match(menuOff, /quota-row-sub">未啟用 · 需安裝 OpenCode 並登入</);
+  assert.match(menuOff, /quota-row-name">CommandCode<\/span><span class="quota-row-sub">未啟用</);
+  assert.match(menuOff, /quota-row-name">OpenCode Go<\/span><span class="quota-row-sub">未啟用</);
   assert.match(menuOff, /quota-row-name">✓ Claude Code</);
   const off = render([snapshot()], 'remaining', []);
   assert.doesNotMatch(off, /<article /);
