@@ -348,6 +348,19 @@ test('prices: source-scoped table prices commandcode ids without touching other 
   assert.notEqual(cc.input, prices.models['gpt-5.6-sol'].input);
 });
 
+test('prices: a bucket provider overrides its source for pricing', () => {
+  const prices = loadPrices();
+  const base = { model: 'gpt-5.6-sol', inputTokens: 1_000_000, outputTokens: 0, cachedInputTokens: 0, reasoningOutputTokens: 0 };
+  const cc = prices.sources.commandcode.models['gpt-5.6-sol'];
+  assert.ok(cc, 'commandcode catalog entry present');
+  // A router (OpenCode) reports which provider billed the call; the id must
+  // price at that provider's catalog rate, not the tool's default.
+  assert.equal(estimateCost({ ...base, source: 'opencode', provider: 'commandcode' }, prices), cc.input);
+  // No provider → source layer (none for opencode) → canonical.
+  assert.equal(estimateCost({ ...base, source: 'opencode' }, prices), prices.models['gpt-5.6-sol'].input);
+  assert.notEqual(cc.input, prices.models['gpt-5.6-sol'].input);
+});
+
 test('prices: every source-scoped id is also reachable from canonical models', () => {
   const prices = loadPrices();
   const sourceOnly = [];
