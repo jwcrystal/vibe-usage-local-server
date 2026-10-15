@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { request as httpRequest } from 'node:http';
 import { gzipSync } from 'node:zlib';
 
 const KEY = 'vbu_test_local_key_12345';
@@ -299,6 +300,22 @@ test('assertSafeBind: off-loopback binding requires an explicit key', async () =
   assert.throws(() => assertSafeBind('192.168.1.5', false));
   for (const host of ['127.0.0.1', 'localhost', '::1']) assert.equal(supportsQuotaSnapshots(host), true);
   for (const host of ['0.0.0.0', '192.168.1.5']) assert.equal(supportsQuotaSnapshots(host), false);
+});
+
+test('requests with a non-loopback Host are rejected', async () => {
+  const call = (host) => new Promise((resolve, reject) => {
+    const req = httpRequest({
+      host: '127.0.0.1', port: address.port, path: '/', method: 'GET',
+      headers: { Host: host, Authorization: `Bearer ${KEY}` },
+    }, (res) => { res.resume(); resolve(res.statusCode); });
+    req.on('error', reject);
+    req.end();
+  });
+  // Loopback names pass; anything else is refused before routing, so a page on
+  // another origin cannot read the API key out of GET / by rebinding DNS.
+  assert.equal(await call('127.0.0.1'), 200);
+  assert.equal(await call('localhost'), 200);
+  assert.equal(await call('evil.example.com'), 403);
 });
 
 test('delete all clears data', async () => {
