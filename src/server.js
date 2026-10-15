@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { loadData, saveData, ingestBuckets, upsertQuotaSnapshots, getDataPath, hash } from './store.js';
 import { logEvent } from './log.js';
-import { estimateCost } from './prices.js';
+import { loadPrices, estimateCost } from './prices.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DASHBOARD_PATH = join(__dirname, 'ui', 'dashboard.html');
@@ -353,8 +353,10 @@ const router = {
       from: params.get('from'),
       to: params.get('to'),
     });
-    // Compute estimatedCost live from the current price table.
-    for (const b of buckets) b.estimatedCost = estimateCost(b);
+    // Compute estimatedCost live from the current price table. Load it once:
+    // estimateCost's own default would re-read prices.json per bucket.
+    const prices = loadPrices();
+    for (const b of buckets) b.estimatedCost = estimateCost(b, prices);
     // Distinct (source, model) pairs with no price entry — surfaced so
     // undercounted KPIs are visible instead of silently low. The source is
     // included because pricing is source-scoped: a router CLI (OpenCode) can
