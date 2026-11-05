@@ -16,6 +16,7 @@ Audited 2026-08-06. Prices are USD per 1M tokens.
 | Sonnet 5 | 2 / 0.2 / 10 | ✅ official | intro through 2026-08-31; then 3/0.3/15 standard (update table 2026-09-01) |
 | Sonnet 4.6 / 4.5 | 3 / 0.3 / 15 | ✅ official | |
 | Haiku 4.5 | 1 / 0.1 / 5 | ✅ official | |
+| Haiku 5.5 | 0.1 / 0.01 / 0.5 | ✅ official | ≤100K tokens tier; >100K: 0.5 / 0.05 / 2.5 (cache write 0.125 / 0.625) |
 | Haiku 3.5 | 0.8 / 0.08 / 4 | ✅ official | retired except Bedrock/GCP |
 
 ### OpenAI — https://developers.openai.com/api/docs/pricing
