@@ -12,6 +12,7 @@ Audited 2026-08-06. Prices are USD per 1M tokens.
 | Opus 4.1 | 15 / 1.5 / 75 | ✅ official | deprecated |
 | Opus 5 | 5 / 0.5 / 25 | ✅ official | docs table + claude.com/pricing |
 | Fable 5 | 10 / 1 / 50 | ✅ official | docs table + claude.com/pricing |
+| Fable 5.2 | 8 / 0.2 / 40 | ✅ official | cache write $10; supersedes Fable 5.1 ($10 / 0.25 / 50) |
 | Mythos 5 | 10 / 1 / 50 | ✅ official | docs table + claude.com/pricing, limited availability |
 | Sonnet 5 | 2 / 0.2 / 10 | ✅ official | intro through 2026-08-31; then 3/0.3/15 standard (update table 2026-09-01) |
 | Sonnet 4.6 / 4.5 | 3 / 0.3 / 15 | ✅ official | |
