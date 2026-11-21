@@ -73,6 +73,12 @@ test('prices: cache write priced via cacheWriteMtok (Anthropic 1.25x input)', ()
   assert.equal(cost, 3.0 + 3.75);
 });
 
+test('prices: 1h cache write priced at 2x input', () => {
+  const prices = loadPrices();
+  const cost = estimateCost({ model: 'claude-sonnet-4-5-20250929', inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, reasoningOutputTokens: 0, cacheCreation1hTokens: 1_000_000 }, prices);
+  assert.equal(cost, 6.0);
+});
+
 test('prices: cache write ignored when the model has no cacheWriteMtok', () => {
   const prices = loadPrices();
   const glm = Object.keys(prices.models).find(k => /GLM-5\.3$/.test(k)) || Object.keys(prices.models).find(k => k.includes('GLM'));
@@ -87,13 +93,37 @@ test('prices: unmatched model returns null (nil)', () => {
 });
 
 test('same key keeps larger existing bucket (protected), smaller does not overwrite', async () => {
-  await ingest([bucket({ bucketStart: '2026-08-05T10:00:00Z', totalTokens: 6000 })]);
-  const bigRes = await ingest([bucket({ bucketStart: '2026-08-05T10:00:00Z', totalTokens: 9000 })]);
+  const base = { bucketStart: '2026-08-05T10:00:00Z', inputTokens: 1000, outputTokens: 2000, cachedInputTokens: 3000, reasoningOutputTokens: 0, totalTokens: 6000 };
+  await ingest([bucket(base)]);
+  const bigRes = await ingest([bucket({ ...base, inputTokens: 4000, totalTokens: 9000 })]);
   assert.equal(bigRes.json.protected.buckets, 0);
   assert.equal(bigRes.json.ingested, 1);
-  const smallRes = await ingest([bucket({ bucketStart: '2026-08-05T10:00:00Z', totalTokens: 3000 })]);
+  const smallRes = await ingest([bucket({ ...base, inputTokens: 500, totalTokens: 3000 })]);
   assert.equal(smallRes.json.protected.buckets, 1);
   assert.equal(smallRes.json.ingested, 0);
+});
+
+test('cache-read growth alone replaces the stored bucket', async () => {
+  const bucketStart = recent(30);
+  await ingest([bucket({ bucketStart, inputTokens: 1000, outputTokens: 2000, cachedInputTokens: 3000, totalTokens: 6000 })]);
+  const res = await ingest([bucket({ bucketStart, inputTokens: 1000, outputTokens: 2000, cachedInputTokens: 5000, totalTokens: 6000 })]);
+  assert.equal(res.json.ingested, 1);
+  assert.equal(res.json.protected.buckets, 0);
+  const usage = await (await fetch(`${BASE()}/api/usage?days=30`, { headers: { Authorization: `Bearer ${KEY}` } })).json();
+  const row = usage.buckets.find((b) => b.bucketStart === bucketStart);
+  assert.equal(row.cachedInputTokens, 5000);
+});
+
+test('a 5m↔1h reclassification with an unchanged total replaces the stored bucket', async () => {
+  const bucketStart = recent(20);
+  const common = { bucketStart, inputTokens: 1000, outputTokens: 2000, cachedInputTokens: 3000, totalTokens: 6100 };
+  await ingest([bucket({ ...common, cacheCreation5mTokens: 100, cacheCreation1hTokens: 0 })]);
+  const res = await ingest([bucket({ ...common, cacheCreation5mTokens: 0, cacheCreation1hTokens: 100 })]);
+  assert.equal(res.json.ingested, 1);
+  const usage = await (await fetch(`${BASE()}/api/usage?days=30`, { headers: { Authorization: `Bearer ${KEY}` } })).json();
+  const row = usage.buckets.find((b) => b.bucketStart === bucketStart);
+  assert.equal(row.cacheCreation5mTokens, 0);
+  assert.equal(row.cacheCreation1hTokens, 100);
 });
 
 test('unauthorized request rejected with 401', async () => {
