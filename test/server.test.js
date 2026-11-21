@@ -46,8 +46,8 @@ function bucket(over = {}) {
 // of when the tests run — fixed calendar dates rot as real time moves on.
 const recent = (minAgo = 60) => new Date(Date.now() - minAgo * 60_000).toISOString();
 
-async function ingest(buckets, sessions) {
-  const payload = { buckets };
+async function ingest(buckets, sessions, extra = {}) {
+  const payload = { buckets, ...extra };
   if (sessions) payload.sessions = sessions;
   const res = await fetch(`${BASE()}/api/usage/ingest`, {
     method: 'POST',
@@ -112,6 +112,25 @@ test('cache-read growth alone replaces the stored bucket', async () => {
   const usage = await (await fetch(`${BASE()}/api/usage?days=30`, { headers: { Authorization: `Bearer ${KEY}` } })).json();
   const row = usage.buckets.find((b) => b.bucketStart === bucketStart);
   assert.equal(row.cachedInputTokens, 5000);
+});
+
+test('a newer token schema replaces a corrected bucket even when it is smaller', async () => {
+  const bucketStart = recent(10);
+  const base = { bucketStart, inputTokens: 1000, outputTokens: 0, cachedInputTokens: 0, reasoningOutputTokens: 0, totalTokens: 1000 };
+  await ingest([bucket(base)]);
+  const corrected = await ingest([bucket({ ...base, inputTokens: 500, totalTokens: 500 })], undefined, { tokenSchema: 2 });
+  assert.equal(corrected.json.ingested, 1);
+  assert.equal(corrected.json.protected.buckets, 0);
+  const usage = await (await fetch(`${BASE()}/api/usage?days=30`, { headers: { Authorization: `Bearer ${KEY}` } })).json();
+  const row = usage.buckets.find((b) => b.bucketStart === bucketStart);
+  assert.equal(row.inputTokens, 500);
+  assert.equal(row.tokensVersion, 2);
+  // Once stored at schema 2, a smaller same-schema snapshot is protected again.
+  const sameSchema = await ingest([bucket({ ...base, inputTokens: 400, totalTokens: 400 })], undefined, { tokenSchema: 2 });
+  assert.equal(sameSchema.json.protected.buckets, 1);
+  // An older client (no schema field) can never revert the correction.
+  const olderSchema = await ingest([bucket({ ...base, inputTokens: 2000, totalTokens: 2000 })]);
+  assert.equal(olderSchema.json.protected.buckets, 1);
 });
 
 test('a 5m↔1h reclassification with an unchanged total replaces the stored bucket', async () => {
