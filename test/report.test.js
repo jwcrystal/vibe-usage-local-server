@@ -8,8 +8,8 @@ const script = dashboard.match(/<script>([\s\S]*?)<\/script>/)[1];
 const formatters = script.slice(script.indexOf('const money ='), script.indexOf('// Local "'));
 const report = script.slice(script.indexOf('function reportDelta('), script.indexOf('// The current filtered bucket set'));
 const fileDate = script.slice(script.indexOf('function fileDate('), script.indexOf('function exportCsv('));
-const metrics = { cost: 128.4, total: 24800000, input: 8200000, output: 3100000,
-  cached: 12000000, cacheWrite: 1500000, active: 3600, duration: 7200,
+const metrics = { cost: 128.4, total: 24900000, input: 8200000, output: 3100000,
+  reasoning: 100000, cached: 12000000, cacheWrite: 1500000, active: 3600, duration: 7200,
   sessions: 142, msgs: 1820, userMsgs: 640 };
 const meta = { from: '2026-09-01', to: '2026-10-01', rangeLabel: '自訂',
   generatedAt: '2026-10-01 10:00', counts: '500 筆資料 · 142 個會話',
@@ -27,14 +27,14 @@ test('report groups all metrics under four primary KPIs and retains safe breakdo
   const rows = [['<model>', { cost: 128.4, tokens: 24800000, n: 500 }]];
   const html = ctx.reportHtml(meta, metrics, metrics, rows, rows, rows);
   assert.equal((html.match(/class="kpi"/g) || []).length, 4);
-  assert.equal((html.match(/class="detail"/g) || []).length, 8);
+  assert.equal((html.match(/class="detail"/g) || []).length, 9);
   for (const label of ['用量摘要', 'Token 明細', '其他活動', '活躍時長', '命中率', '按模型', '按工具', '按項目', '資料筆數', '費用佔比']) {
     assert.ok(html.includes(label), label);
   }
-  for (const value of ['$128.40', '24.8M', '8.2M', '3.1M', '12.0M', '1.5M', '59.4%', '1h 0m', '2h 0m', '142', '1,820', '640']) {
+  for (const value of ['$128.40', '24.9M', '100K', '8.2M', '3.1M', '12.0M', '1.5M', '59.4%', '1h 0m', '2h 0m', '142', '1,820', '640']) {
     assert.ok(html.includes(value), value);
   }
-  assert.equal((html.match(/class="d">持平/g) || []).length, 12);
+  assert.equal((html.match(/class="d">持平/g) || []).length, 13);
   assert.ok(html.includes('比較基準：2026-08-02 00:00 ~ 2026-09-01 00:00'));
   assert.ok(html.includes('項目=&lt;demo&gt;'));
   assert.ok(html.includes('&lt;unknown&gt;'));
